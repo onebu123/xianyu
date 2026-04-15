@@ -16,6 +16,26 @@ const app = await createApp({
     runtimeMode: 'demo',
     seedDemoData: true,
 });
+function buildMetricsRequestHeaders(adminAccessToken) {
+    if (appConfig.metricsToken) {
+        return {
+            'x-metrics-token': appConfig.metricsToken,
+        };
+    }
+    return {
+        authorization: `Bearer ${adminAccessToken}`,
+    };
+}
+async function withStoreAuthMode(mode, runner) {
+    const originalMode = appConfig.storeAuthMode;
+    appConfig.storeAuthMode = mode;
+    try {
+        return await runner();
+    }
+    finally {
+        appConfig.storeAuthMode = originalMode;
+    }
+}
 it('过期的网页登录态授权会话在重新生成二维码后仍可接收扫码登录态', async () => {
     const originalMode = appConfig.storeAuthMode;
     appConfig.storeAuthMode = 'xianyu_web_session';
@@ -531,9 +551,7 @@ describe('销售统计接口', () => {
         const response = await app.inject({
             method: 'GET',
             url: '/api/metrics',
-            headers: {
-                authorization: `Bearer ${adminToken}`,
-            },
+            headers: buildMetricsRequestHeaders(adminToken),
         });
         expect(response.statusCode).toBe(200);
         expect(response.headers['content-type']).toContain('text/plain');
@@ -2340,6 +2358,7 @@ describe('销售统计接口', () => {
         expect(batchHealthCheckResponse.json().checks.every((check) => check.status === 'skipped')).toBe(true);
     });
     it('重新授权不会创建重复店铺，并会刷新授权状态', async () => {
+        await withStoreAuthMode('xianyu_web_session', async () => {
         const overview = await getStoreManagement();
         const offlineStore = overview.stores.find((store) => store.connectionStatus === 'offline');
         expect(offlineStore).toBeTruthy();
@@ -2389,8 +2408,10 @@ describe('销售统计接口', () => {
         expect(updatedStore.shopName).toBe('重新授权店铺');
         expect(updatedStore.authStatus).toBe('authorized');
         expect(updatedStore.connectionStatus).toBe('active');
+        });
     });
     it('店铺管理支持创建闲鱼店铺并激活', async () => {
+        await withStoreAuthMode('xianyu_web_session', async () => {
         const sessionResponse = await app.inject({
             method: 'POST',
             url: '/api/stores/auth-sessions',
@@ -2439,6 +2460,7 @@ describe('销售统计接口', () => {
         expect(createdStore).toBeTruthy();
         expect(createdStore.platform).toBe('xianyu');
         expect(createdStore.connectionStatus).toBe('active');
+        });
     });
     it('真实授权支持无登录态公共回调并更新接入下一步', async () => {
         const originalConfig = {
@@ -3231,6 +3253,7 @@ describe('销售统计接口', () => {
             });
             expect(loginResponse.statusCode).toBe(200);
             const isolatedAdminToken = loginResponse.json().token;
+            await withStoreAuthMode('xianyu_web_session', async () => {
             const sessionResponse = await isolatedApp.inject({
                 method: 'POST',
                 url: '/api/stores/auth-sessions',
@@ -3525,6 +3548,7 @@ describe('销售统计接口', () => {
             expect(finalPayload.sessions.filter((item) => item.sessionNo === sessionNo)).toHaveLength(1);
             expect(finalPayload.strategies.filter((item) => item.productId === 92001001)).toHaveLength(1);
             expect(finalPayload.logs.filter((item) => item.sessionId === syncedSession.id)).toHaveLength(initialLogCount);
+            });
         }
         finally {
             await isolatedApp.close();
@@ -3551,6 +3575,7 @@ describe('销售统计接口', () => {
             });
             expect(loginResponse.statusCode).toBe(200);
             const isolatedAdminToken = loginResponse.json().token;
+            await withStoreAuthMode('xianyu_web_session', async () => {
             const sessionResponse = await isolatedApp.inject({
                 method: 'POST',
                 url: '/api/stores/auth-sessions',
@@ -3781,6 +3806,7 @@ describe('销售统计接口', () => {
             expect(finalConversation.conversationStatus).toBe('resolved');
             expect(finalPayload.recentMessages.some((item) => item.conversationId === conversation.id && item.senderType === 'ai')).toBe(true);
             expect(finalPayload.recentMessages.some((item) => item.conversationId === conversation.id && item.senderType === 'manual')).toBe(true);
+            });
         }
         finally {
             await isolatedApp.close();
