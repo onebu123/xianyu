@@ -1,0 +1,11 @@
+node_modules
+server/node_modules
+web/node_modules
+server/data
+web/dist
+server/dist
+.playwright-cli
+.env
+.env.*
+.git
+docs

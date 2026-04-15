@@ -1,0 +1,183 @@
+/* �Ǳ�����ʽ */
+/* ── 7. 仪表�?(Dashboard) ────────────────────────────── */
+.functional-dashboard {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* 欢迎�?*/
+.functional-dashboard-hero {
+  background: var(--sc-gradient-hero);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-xl);
+  padding: 28px 32px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.functional-dashboard-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -10%;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+.functional-dashboard-hero h2.ant-typography {
+  color: var(--sc-text) !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  margin: 8px 0 6px !important;
+}
+.functional-dashboard-hero .ant-typography {
+  color: var(--sc-text-secondary) !important;
+  font-size: 13px !important;
+}
+
+.functional-dashboard-meta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: var(--sc-text-muted);
+}
+.functional-dashboard-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 区段标题 */
+.functional-section {
+  margin-bottom: 28px;
+}
+.functional-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+.functional-section-header h3.ant-typography {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: var(--sc-text) !important;
+  margin: 0 !important;
+}
+
+/* ── 指标卡片网格 ── */
+.functional-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.functional-card {
+  background: var(--sc-gradient-card);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  padding: 16px 18px;
+  transition: all var(--sc-transition);
+  position: relative;
+  overflow: hidden;
+}
+.functional-card:hover {
+  border-color: var(--sc-border-active);
+  background: var(--sc-bg-card-hover);
+  box-shadow: var(--sc-shadow-glow);
+  transform: translateY(-1px);
+}
+.functional-card-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sc-text-secondary);
+  margin-bottom: 8px;
+}
+.functional-card-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--sc-text);
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin-bottom: 6px;
+}
+.functional-card-meta {
+  font-size: 11px;
+  color: var(--sc-text-muted);
+}
+
+/* ── 常用功能网格 ── */
+.functional-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.functional-action-card {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--sc-radius);
+  border: 1px solid var(--sc-border);
+  background: var(--sc-bg-card);
+  transition: all var(--sc-transition);
+}
+.functional-action-card:hover {
+  border-color: var(--sc-border-active);
+  background: var(--sc-bg-card-hover);
+  box-shadow: var(--sc-shadow-glow);
+  transform: translateY(-1px);
+}
+.functional-action-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--sc-primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #a5b4fc;
+  flex-shrink: 0;
+}
+.functional-action-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sc-text);
+  margin-bottom: 2px;
+}
+.functional-action-desc {
+  font-size: 11px;
+  color: var(--sc-text-muted);
+  line-height: 1.4;
+}
+
+.functional-dashboard-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 24px 0 40px;
+}
+
+.functional-dashboard-body {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

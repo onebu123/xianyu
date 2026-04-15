@@ -1,0 +1,183 @@
+/* ����̨��ʽ */
+/* ── 11. 工作�?──────────────────────────────────────────── */
+.workspace-hero {
+  padding: 20px 24px;
+  border-radius: var(--sc-radius-lg);
+  border: 1px solid var(--sc-border);
+  background: var(--sc-gradient-hero);
+  margin-bottom: 20px;
+}
+.workspace-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.workspace-summary-card {
+  padding: 16px;
+  border-radius: var(--sc-radius);
+  background: var(--sc-bg-card);
+  border: 1px solid var(--sc-border);
+}
+.workspace-summary-label {
+  font-size: 12px;
+  color: var(--sc-text-secondary);
+  margin-bottom: 4px;
+}
+.workspace-summary-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--sc-text);
+}
+
+.workspace-tabs-container {
+  margin-top: 16px;
+}
+.workspace-settings-section {
+  padding: 16px 0;
+}
+
+/* 工作台操作面�?*/
+.workspace-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.workspace-action-card {
+  all: unset;
+  cursor: pointer;
+  padding: 16px 20px;
+  border-radius: var(--sc-radius);
+  border: 1px solid var(--sc-border);
+  background: var(--sc-bg-card);
+  transition: all var(--sc-transition);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.workspace-action-card:hover {
+  border-color: var(--sc-border-active);
+  background: var(--sc-bg-card-hover);
+  box-shadow: var(--sc-shadow-glow);
+}
+.workspace-checklist-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workspace-checklist-item {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--sc-border);
+  background: var(--sc-bg-card);
+  cursor: pointer;
+  transition: all var(--sc-transition);
+  font-size: 13px;
+  color: var(--sc-text-secondary);
+}
+.workspace-checklist-item:hover {
+  background: var(--sc-bg-card-hover);
+  color: var(--sc-text);
+}
+.workspace-checklist-item.is-done {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+/* ── AI 客服聊天面板 ── */
+.ai-chat-container {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  height: calc(100vh - var(--sc-header-height) - 48px);
+}
+.ai-chat-sidebar {
+  border-radius: var(--sc-radius-lg);
+  border: 1px solid var(--sc-border);
+  background: var(--sc-bg-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ai-chat-main {
+  border-radius: var(--sc-radius-lg);
+  border: 1px solid var(--sc-border);
+  background: var(--sc-bg-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ai-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+.ai-chat-composer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--sc-border);
+  display: flex;
+  gap: 8px;
+}
+
+/* ── 12. 品牌微标 ── */
+.app-sider-brand-card {
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--sc-border);
+  margin-bottom: 8px;
+}
+.app-sider-brand-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-sider-brand-kicker {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--sc-primary);
+}
+.app-sider-brand-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sc-text);
+  letter-spacing: -0.3px;
+}
+.app-sider-brand-copy {
+  font-size: 11px;
+  color: var(--sc-text-muted);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+/* ── 13. 上下文指标卡�?── */
+.app-shell-context-metrics {
+  display: flex;
+  gap: 12px;
+}
+.context-metric-card {
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: var(--sc-bg-card);
+  border: 1px solid var(--sc-border);
+  display: flex;
+  flex-direction: column;
+}
+.context-metric-label {
+  font-size: 10px;
+  color: var(--sc-text-muted);
+}
+.context-metric-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sc-text);
+}
+
+/* ── 14. is-chat-route 模式 ── */
+.app-content-inner.is-chat-route {
+  padding: 12px;
+}

@@ -1,0 +1,8 @@
+services:
+  sale-compass:
+    build:
+      args:
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH:-/sale-compass/}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/sale-compass/api}
+    network_mode: host
+    ports: []

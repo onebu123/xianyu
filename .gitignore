@@ -1,0 +1,37 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+.claude/
+.vscode/
+.env
+.env.*
+.playwright-cli/
+data/
+logs/
+screenshots/
+server/data/
+output/
+web/dist/
+web/node_modules/
+server/node_modules/
+*.sqlite
+*.db
+
+# 临时构建/调试产物
+*.txt
+!README.md
+!LICENSE
+tmp-*.log
+realtime.log
+
+# 临时截图/图片
+web/*.png
+web/*.jpg
+
+# ESLint 缓存
+web/eslint.json
+
+# Python 脚本
+web/*.py

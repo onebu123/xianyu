@@ -1,0 +1,37 @@
+{
+  "name": "goofish-sale-statistics",
+  "private": true,
+  "version": "1.0.0",
+  "description": "基于开源组件实现的闲鱼销售统计后台示例系统",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web && npm run build -w server",
+    "preflight": "npm run preflight -w server",
+    "db:inspect": "npm run db:inspect -w server",
+    "db:doctor": "npm run db:doctor -w server",
+    "start": "npm run preflight -w server && npm run start -w server",
+    "lint": "npm run lint -w server && npm run lint -w web",
+    "test": "npm run test -w server",
+    "seed": "npm run seed -w server",
+    "backup:db": "npm run backup:db -w server",
+    "restore:db": "npm run restore:db -w server",
+    "smoke:release": "node scripts/smoke-release.mjs",
+    "package:release": "node scripts/package-release.mjs",
+    "release:v1": "npm run lint && npm run test && npm run build && npm run smoke:release && npm run package:release",
+    "format": "prettier --write ."
+  },
+  "keywords": [
+    "goofish",
+    "statistics",
+    "dashboard"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "prettier": "^3.6.2"
+  }
+}

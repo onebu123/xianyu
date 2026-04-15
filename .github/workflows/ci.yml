@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - feat/**
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      APP_RUNTIME_MODE: staging
+      HOST: 127.0.0.1
+      PORT: 4300
+      JWT_SECRET: ci-jwt-secret-20260312-abcdefghijklmnopqrstuvwxyz
+      APP_CONFIG_CIPHER_SECRET: ci-cipher-secret-20260312-abcdefghijklmnopqrstuvwxyz
+      APP_INIT_ADMIN_USERNAME: ci-admin
+      APP_INIT_ADMIN_PASSWORD: CiAdmin@20260312
+      APP_INIT_ADMIN_DISPLAY_NAME: CI管理员
+      APP_ENABLE_DEMO_DATA: "false"
+      APP_METRICS_ENABLED: "true"
+      APP_METRICS_TOKEN: ci-metrics-token-20260312
+      APP_LOG_LEVEL: info
+      APP_REQUEST_LOGGING_ENABLED: "true"
+      APP_TRUST_PROXY: "false"
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run lint
+
+      - name: 运行测试
+        run: npm run test
+
+      - name: 构建产物
+        run: npm run build
+
+      - name: 启动前检查
+        run: npm run preflight
+
+      - name: 发布烟测
+        run: npm run smoke:release

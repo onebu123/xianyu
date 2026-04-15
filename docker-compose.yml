@@ -1,0 +1,45 @@
+services:
+  sale-compass:
+    build:
+      context: .
+      args:
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH:-/}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    container_name: sale-compass
+    restart: unless-stopped
+    ports:
+      - '4300:4300'
+    environment:
+      APP_RUNTIME_MODE: ${APP_RUNTIME_MODE:-prod}
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-4300}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      APP_JWT_EXPIRES_MINUTES: ${APP_JWT_EXPIRES_MINUTES:-480}
+      APP_CONFIG_CIPHER_SECRET: ${APP_CONFIG_CIPHER_SECRET:-change-me-too}
+      APP_LOGIN_MAX_ATTEMPTS: ${APP_LOGIN_MAX_ATTEMPTS:-10}
+      APP_LOGIN_WINDOW_MINUTES: ${APP_LOGIN_WINDOW_MINUTES:-10}
+      APP_PRIVILEGED_WRITE_LIMIT: ${APP_PRIVILEGED_WRITE_LIMIT:-60}
+      APP_PRIVILEGED_WRITE_WINDOW_MINUTES: ${APP_PRIVILEGED_WRITE_WINDOW_MINUTES:-10}
+      APP_DATA_ROOT: ${APP_DATA_ROOT:-/app/server/data}
+      APP_DB_PATH: ${APP_DB_PATH:-/app/server/data/app.db}
+      APP_LOG_ROOT: ${APP_LOG_ROOT:-/app/server/data/logs}
+      APP_BACKUP_ROOT: ${APP_BACKUP_ROOT:-/app/server/data/backups}
+      APP_UPLOAD_ROOT: ${APP_UPLOAD_ROOT:-/app/server/data/uploads}
+      APP_ENABLE_DEMO_DATA: ${APP_ENABLE_DEMO_DATA:-false}
+      APP_INIT_ADMIN_USERNAME: ${APP_INIT_ADMIN_USERNAME:-admin}
+      APP_INIT_ADMIN_PASSWORD: ${APP_INIT_ADMIN_PASSWORD:-replace-with-a-strong-admin-password}
+      APP_INIT_ADMIN_DISPLAY_NAME: ${APP_INIT_ADMIN_DISPLAY_NAME:-系统管理员}
+    volumes:
+      - ./server/data:/app/server/data
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4300/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

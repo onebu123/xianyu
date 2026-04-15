@@ -1,0 +1,335 @@
+/* App Shell \u2014 ����� + ���� + ���������� */
+/* ── 3. 应用�?(App Shell) ──────────────────────────────── */
+.app-shell {
+  min-height: 100vh;
+  background: var(--sc-bg) !important;
+  position: relative;
+}
+
+.app-shell-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  /* 微妙的径向渐变背�?*/
+  background:
+    radial-gradient(ellipse 60% 40% at 15% 10%, rgba(99, 102, 241, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 85% 80%, rgba(6, 182, 212, 0.05) 0%, transparent 60%),
+    var(--sc-bg);
+  pointer-events: none;
+}
+
+/* ── 4. 侧边�?(Sidebar) ──────────────────────────────── */
+.app-shell-sider {
+  position: fixed !important;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--sc-sidebar-width) !important;
+  min-width: var(--sc-sidebar-width) !important;
+  max-width: var(--sc-sidebar-width) !important;
+  background: var(--sc-bg-sidebar) !important;
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border-right: 1px solid var(--sc-border);
+  z-index: 100;
+  overflow: hidden;
+  flex: none !important;
+}
+
+.app-sider-scroll {
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 24px;
+}
+
+/* ── 品牌�?── */
+.app-sider-brand {
+  padding: 20px 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--sc-border);
+  margin-bottom: 8px;
+}
+.app-brand-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+.app-sider-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+.app-sider-brand-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sc-text);
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+}
+.app-sider-brand-sub {
+  font-size: 11px;
+  color: var(--sc-text-muted);
+  margin-top: 1px;
+  letter-spacing: 0.5px;
+}
+
+/* ── 导航�?── */
+.nav-group {
+  padding: 4px 12px;
+}
+.nav-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--sc-text-muted);
+}
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── 导航�?── */
+.nav-item-button {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sc-text-secondary);
+  transition: all var(--sc-transition);
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+.nav-item-button:hover {
+  background: var(--sc-bg-card-hover);
+  color: var(--sc-text);
+}
+.nav-item-button.is-active {
+  background: var(--sc-primary-soft);
+  color: #a5b4fc;
+}
+.nav-item-button.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-radius: 0 3px 3px 0;
+  background: var(--sc-primary);
+}
+.nav-item-icon {
+  font-size: 16px;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+.nav-item-button.is-active .nav-item-icon {
+  opacity: 1;
+}
+.nav-item-label {
+  flex: 1;
+}
+.nav-item-caption,
+.nav-item-arrow {
+  display: none;
+}
+
+/* ── 5. 顶栏 (Header) ───────────────────────────────────── */
+.app-shell-header {
+  position: fixed !important;
+  top: 0;
+  left: var(--sc-sidebar-width);
+  right: 0;
+  height: var(--sc-header-height) !important;
+  line-height: normal !important;
+  background: rgba(10, 10, 15, 0.8) !important;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border-bottom: 1px solid var(--sc-border);
+  z-index: 90;
+  padding: 0 24px !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.app-shell-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.app-shell-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-brand {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.app-brand .app-brand-logo {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  display: none;
+}
+.app-brand-copy {
+  display: flex;
+  flex-direction: column;
+}
+.app-brand-kicker {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--sc-primary);
+}
+.app-brand-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sc-text);
+  letter-spacing: -0.3px;
+}
+.app-brand-subtitle {
+  display: none;
+}
+
+/* 上下文栏 */
+.app-shell-context {
+  display: none;
+}
+
+/* 头部动作�?*/
+.app-shell-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-shell-status-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.shell-tag {
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  background: var(--sc-bg-card) !important;
+  color: var(--sc-text-secondary) !important;
+  border: 1px solid var(--sc-border) !important;
+}
+.shell-tag-primary {
+  background: var(--sc-primary-soft) !important;
+  color: #a5b4fc !important;
+  border-color: rgba(99, 102, 241, 0.2) !important;
+}
+.app-shell-utility-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-link-button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sc-text-secondary);
+  transition: all var(--sc-transition);
+}
+.header-link-button:hover {
+  background: var(--sc-bg-card-hover);
+  color: var(--sc-text);
+}
+.header-user-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 10px;
+  background: var(--sc-bg-card);
+  border: 1px solid var(--sc-border);
+  margin-left: 4px;
+}
+.header-user-avatar {
+  width: 30px !important;
+  height: 30px !important;
+  line-height: 30px !important;
+  font-size: 14px !important;
+  border-radius: 8px !important;
+}
+.header-user-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sc-text);
+  line-height: 1.3;
+}
+.header-user-role {
+  font-size: 10px;
+  color: var(--sc-text-muted);
+}
+.shell-ghost-button {
+  font-size: 12px !important;
+  border: 1px solid var(--sc-border) !important;
+  background: transparent !important;
+  color: var(--sc-text-secondary) !important;
+}
+.shell-ghost-button:hover {
+  border-color: var(--sc-primary) !important;
+  color: var(--sc-primary) !important;
+}
+
+/* ── 移动导航触发�?── */
+.mobile-nav-trigger {
+  display: none !important;
+}
+
+/* ── 6. 主内容区�?──────────────────────────────────────── */
+.app-shell-main {
+  margin-left: var(--sc-sidebar-width);
+  padding-top: var(--sc-header-height);
+  height: 100vh;
+  overflow-y: auto;
+  background: transparent !important;
+}
+.app-shell-content {
+  padding: 0 !important;
+  background: transparent !important;
+}
+.app-content-inner {
+  padding: 24px;
+  min-height: calc(100vh - var(--sc-header-height));
+}
