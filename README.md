@@ -1,6 +1,27 @@
 # Sale Compass
 
-Sale Compass 是一个基于开源组件二次开发的销售统计后台私有化交付版，覆盖销售总览、订单统计、商品分析、客户分析、筛选联动、CSV 导出，以及登录鉴权、角色隔离、审计日志与敏感配置加密等能力。
+Sale Compass 是一个面向私有化部署的企业级闲鱼电商运营后台，覆盖店铺接入、订单中心、商品中心、售后中心、资金中心、AI 客服、AI 议价、运维监控与发布交付链路。
+
+当前仓库已经收口到 `v1.0.0`，具备以下交付特征：
+- 可直接本地运行、Docker 部署和标准打包发布
+- 内置登录鉴权、角色隔离、审计日志、敏感配置加密
+- 支持闲鱼网页登录态接入、店铺授权与凭据事件时间线
+- 支持 `lint`、测试、构建、冒烟检查、发布打包一体化执行
+
+## 核心能力
+
+- 店铺接入：授权会话、网页登录态接入、资料同步、绑店激活、凭据校验、续登记录
+- 交易中台：订单中心、商品中心、售后中心、资金中心、报表中心
+- 履约能力：卡密发货、直充发货、自有货源接入
+- AI 工作台：AI 客服、AI 议价、真实 IM 会话同步
+- 运维治理：健康检查、Prometheus 指标、备份恢复、恢复演练、预检脚本
+
+## 技术栈
+
+- 后端：Node.js、TypeScript、Fastify、better-sqlite3
+- 前端：React、TypeScript、Vite、Ant Design
+- 质量保障：ESLint、Vitest、发布冒烟脚本
+- 部署方式：本地运行、Docker Compose、Ubuntu VPS
 
 ## 快速开始
 
@@ -10,13 +31,11 @@ npm install
 npm run dev
 ```
 
-- 环境模板：`.env.development`、`.env.staging`、`.env.production`
+默认访问地址：
 - 前端：`http://127.0.0.1:5173`
 - 后端：`http://127.0.0.1:4300`
 
 ## 生产运行
-
-生产模式下由 Fastify 同时提供前端静态资源与 API：
 
 ```bash
 npm run build
@@ -24,7 +43,7 @@ npm run preflight
 npm run start
 ```
 
-运维与发布命令：
+常用运维命令：
 
 ```bash
 npm run db:inspect
@@ -32,109 +51,86 @@ npm run db:doctor
 npm run smoke:release
 ```
 
-标准入口：
-
-- 本机：`http://127.0.0.1:4300`
-- 公网直连：`http://<VPS_IP>:4300`
-
-## Docker 运行
-
-1. 复制环境变量模板：
+## Docker 部署
 
 ```bash
 cp .env.example .env
-```
-
-2. 直接启动：
-
-```bash
 docker compose up -d --build
-```
-
-3. 健康检查：
-
-```bash
 curl http://127.0.0.1:4300/api/health
-docker compose ps
 ```
 
-也可以在启动前执行：
+如果是 VPS 环境，可结合：
 
 ```bash
-npm run preflight
-```
-
-## Ubuntu VPS 部署
-
-默认推荐 Docker 部署，不使用 systemd 直跑。
-
-### 标准模式
-
-适用于云厂商允许公网直连 `4300/tcp` 的环境：
-
-```bash
-cp .env.example .env
 docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build
 ```
 
-标准公网地址：`http://<VPS_IP>:4300`
+Nginx 路径代理示例见：
+[deploy/nginx.sale-compass.conf](./deploy/nginx.sale-compass.conf)
 
-### 当前阿里云 VPS 实际落地模式
+## 管理员初始化
 
-当前这台阿里云 Ubuntu VPS 的公网 `4300` 链路没有真正到达 ECS 网卡，因此实际交付入口改为复用现有 `80` 端口，在不影响根路径业务的前提下挂载独立路径：
-
-- 当前地址：`http://47.251.63.59/sale-compass/`
-- Nginx 路径代理样例：[`deploy/nginx.sale-compass.conf`](./deploy/nginx.sale-compass.conf)
-
-这一模式仍然由容器内应用监听 `127.0.0.1:4300`，只是在公网入口层通过 Nginx 转发到 `/sale-compass/`。
-
-## 初始化管理员
-
-首次启动不会再内置演示账号。默认登录账号取决于 `.env` 中的初始化配置：
+首次启动会根据 `.env` 中的初始化参数创建管理员账号：
 
 - 用户名：`APP_INIT_ADMIN_USERNAME`
 - 密码：`APP_INIT_ADMIN_PASSWORD`
 
-## 数据说明
+默认 `prod` 模式不会自动注入演示数据。  
+如果需要本地演示数据，请显式启用：
 
-- 默认按 `prod` 模式启动，不会自动写入演示业务数据
-- 首次启动只会根据 `.env` 创建初始化管理员
-- 如需本地演示数据，必须显式切到 `demo` 模式并开启 `APP_ENABLE_DEMO_DATA=true`
+- `APP_RUNTIME_MODE=demo`
+- `APP_ENABLE_DEMO_DATA=true`
 
-## 标准交付打包
+## 版本发布
 
-第 15 轮交付版可直接执行：
+标准发布命令：
 
 ```bash
 npm run release:v1
 ```
 
+该命令会串行执行：
+- `npm run lint`
+- `npm run test`
+- `npm run build`
+- `npm run smoke:release`
+- `npm run package:release`
+
 标准输出目录：
 
 ```text
-output/releases/sale-compass-v1.0.0-<时间戳>/
+output/releases/sale-compass-v1.0.0-<timestamp>/
 ```
 
-## 文档
+## 当前版本
 
-- 项目说明：[`docs/project-overview.md`](./docs/project-overview.md)
-- API 文档：[`docs/api.md`](./docs/api.md)
-- 安全模型：[`docs/security-model.md`](./docs/security-model.md)
-- 安全验收记录：[`docs/security-acceptance.md`](./docs/security-acceptance.md)
-- 开源依赖与许可证：[`docs/open-source-and-license.md`](./docs/open-source-and-license.md)
-- 部署说明：[`docs/deployment.md`](./docs/deployment.md)
-- 备份恢复手册：[`docs/backup-restore-runbook.md`](./docs/backup-restore-runbook.md)
-- 数据库运维手册：[`docs/database-operations-runbook.md`](./docs/database-operations-runbook.md)
-- 可观测说明：[`docs/production-observability.md`](./docs/production-observability.md)
-- 生产化路线：[`docs/production-readiness-roadmap.md`](./docs/production-readiness-roadmap.md)
-- 事件响应手册：[`docs/incident-response-runbook.md`](./docs/incident-response-runbook.md)
-- 生产化验收：[`docs/production-acceptance.md`](./docs/production-acceptance.md)
-- 升级说明：[`docs/upgrade.md`](./docs/upgrade.md)
-- 回滚说明：[`docs/rollback.md`](./docs/rollback.md)
-- 客户交付手册：[`docs/customer-delivery-handbook.md`](./docs/customer-delivery-handbook.md)
-- `v1.0` 发布说明：[`docs/v1-release-notes.md`](./docs/v1-release-notes.md)
-- `v1.0` 范围冻结：[`docs/v1-scope-freeze.md`](./docs/v1-scope-freeze.md)
-- `v1.0` 支持边界：[`docs/v1-support-boundary.md`](./docs/v1-support-boundary.md)
-- `v1.0` 验收清单：[`docs/v1-acceptance-checklist.md`](./docs/v1-acceptance-checklist.md)
-- `v1.0` 试运行记录：[`docs/v1-pilot-run.md`](./docs/v1-pilot-run.md)
-- `v1.0` 已知问题：[`docs/v1-known-issues.md`](./docs/v1-known-issues.md)
+- 当前版本：`v1.0.0`
+- 发布日期：`2026-04-15`
+- 当前定位：首个可交付的企业级私有化版本
+
+最新发布产物和说明：
+- [docs/v1-release-notes.md](./docs/v1-release-notes.md)
+- [docs/v1-support-boundary.md](./docs/v1-support-boundary.md)
+- [docs/v1-known-issues.md](./docs/v1-known-issues.md)
+
+## 文档导航
+
+- 项目总览：[docs/project-overview.md](./docs/project-overview.md)
+- 接口文档：[docs/api.md](./docs/api.md)
+- 部署说明：[docs/deployment.md](./docs/deployment.md)
+- 安全模型：[docs/security-model.md](./docs/security-model.md)
+- 备份恢复：[docs/backup-restore-runbook.md](./docs/backup-restore-runbook.md)
+- 生产验收：[docs/production-acceptance.md](./docs/production-acceptance.md)
+- 企业改造路线图：[docs/enterprise-roadmap.md](./docs/enterprise-roadmap.md)
+
+## 下一阶段
+
+`v1.0.0` 已完成交付收口。下一阶段重点为：
+- 继续拆分订单、售后、资金、AI 工作台仓储边界
+- 拆分 `app.ts` 路由与应用服务边界
+- 为 `web` 补齐前端测试、组件测试与冒烟测试
+- 为接口治理补齐 OpenAPI 契约
+
+## License
+
+本项目使用 [LICENSE](./LICENSE) 中声明的许可协议。
