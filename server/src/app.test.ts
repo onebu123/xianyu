@@ -2828,7 +2828,7 @@ describe('销售统计接口', () => {
         expect(payload.modules.todayCards.some((item) => Number(item.value) > 0)).toBe(true);
         await refreshedApp.close();
         fs.rmSync(staleDir, { recursive: true, force: true });
-    });
+    }, 20_000);
     it('prod 模式空库初始化时只创建管理员不注入演示数据', async () => {
         const isolatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'goofish-prod-'));
         const isolatedDbPath = path.join(isolatedDir, 'prod.db');

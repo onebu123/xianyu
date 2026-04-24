@@ -13,6 +13,78 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+export const mfaVerifySchema = z.object({
+  challengeToken: z.string().min(1),
+  code: z.string().min(6).max(8),
+});
+
+export const platformMfaConfirmSchema = z.object({
+  code: z.string().min(6).max(8),
+});
+
+export const tenantSelectSchema = z.object({
+  tenantId: z.coerce.number().int().positive(),
+});
+
+export const platformTenantCreateSchema = z.object({
+  tenantKey: z
+    .string()
+    .min(2)
+    .max(40)
+    .regex(/^[a-zA-Z0-9_-]+$/, '租户标识只允许字母、数字、下划线和中划线'),
+  tenantName: z.string().min(2).max(60),
+  displayName: z.string().min(2).max(60).optional(),
+  initialAdminUserId: z.coerce.number().int().positive().optional(),
+  initialAdminRole: z.enum(systemUserRoles).optional(),
+});
+
+export const platformTenantStatusSchema = z.object({
+  status: z.enum(['active', 'suspended']),
+});
+
+export const platformTenantMembershipSchema = z.object({
+  platformUserId: z.coerce.number().int().positive(),
+  membershipRole: z.enum(['owner', 'admin', 'member', 'support']),
+  systemRole: z.enum(systemUserRoles),
+  status: z.enum(['active', 'disabled']).optional(),
+});
+
+export const openPlatformAppCreateSchema = z.object({
+  appName: z.string().min(2).max(60),
+  ownerName: z.string().min(2).max(40),
+  contactName: z.string().max(80).optional(),
+  callbackUrl: z.string().max(200).optional(),
+  scopes: z
+    .array(z.enum(['dashboard.read', 'orders.read', 'webhook.receive']))
+    .min(1)
+    .max(6),
+  rateLimitPerMinute: z.coerce.number().int().min(30).max(5000).optional(),
+});
+
+export const openPlatformAppStatusSchema = z.object({
+  status: z.enum(['active', 'suspended']),
+});
+
+export const openPlatformSettingsSchema = z.object({
+  webhookBaseUrl: z.string().max(200).optional(),
+  notifyEmail: z.string().email().max(120).or(z.literal('')).optional(),
+  publishedVersion: z.string().min(2).max(20).optional(),
+  defaultRateLimitPerMinute: z.coerce.number().int().min(30).max(5000).optional(),
+  signatureTtlSeconds: z.coerce.number().int().min(60).max(3600).optional(),
+  whitelistEnforced: z.boolean().optional(),
+});
+
+export const openPlatformWhitelistRuleCreateSchema = z.object({
+  ruleType: z.enum(['ip']).default('ip'),
+  ruleValue: z.string().min(3).max(80),
+  description: z.string().max(120).optional(),
+  enabled: z.boolean().optional(),
+});
+
+export const openPlatformWhitelistEnabledSchema = z.object({
+  enabled: z.boolean(),
+});
+
 export const strongPasswordSchema = z
   .string()
   .min(12, '密码至少需要 12 位')

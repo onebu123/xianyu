@@ -1,13 +1,19 @@
-import type { LoginResponse } from './api';
+import type { PlatformUserRole, SystemUserRole } from './api';
 import type { NavigationItem } from './navigation';
 
-export type AppUserRole = LoginResponse['user']['role'];
+export type AppUserRole = SystemUserRole;
+export type AppPlatformRole = PlatformUserRole;
 
 const roleLabelMap: Record<AppUserRole, string> = {
   admin: '管理员',
   operator: '运营',
   support: '客服',
   finance: '财务',
+};
+
+const platformRoleLabelMap: Record<AppPlatformRole, string> = {
+  platform_admin: '平台管理员',
+  platform_operator: '平台运营',
 };
 
 const workspaceAccessPolicy: Record<string, { view: AppUserRole[]; manage: AppUserRole[] }> = {
@@ -70,6 +76,10 @@ function extractWorkspaceFeature(pathname: string) {
 
 export function getRoleLabel(role: AppUserRole | null | undefined) {
   return role ? roleLabelMap[role] : '未知角色';
+}
+
+export function getPlatformRoleLabel(role: AppPlatformRole | null | undefined) {
+  return role ? platformRoleLabelMap[role] : '未知平台角色';
 }
 
 export function getFirstAccessiblePath(role: AppUserRole | null | undefined) {

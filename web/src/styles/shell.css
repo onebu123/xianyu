@@ -274,6 +274,18 @@
   background: var(--sc-bg-card-hover);
   color: var(--sc-text);
 }
+.header-tenant-select {
+  min-width: 240px;
+}
+.header-tenant-select .ant-select-selector {
+  border-radius: 10px !important;
+  background: var(--sc-bg-card) !important;
+  border-color: var(--sc-border) !important;
+}
+.header-tenant-select .ant-select-selection-item {
+  color: var(--sc-text) !important;
+  font-size: 12px;
+}
 .header-user-box {
   display: flex;
   align-items: center;

@@ -15,13 +15,23 @@
     "db:doctor": "npm run db:doctor -w server",
     "start": "npm run preflight -w server && npm run start -w server",
     "lint": "npm run lint -w server && npm run lint -w web",
-    "test": "npm run test -w server",
+    "test": "npm run test -w server && npm run test -w web",
+    "test:server": "npm run test -w server",
+    "test:web": "npm run test -w web",
     "seed": "npm run seed -w server",
     "backup:db": "npm run backup:db -w server",
     "restore:db": "npm run restore:db -w server",
     "smoke:release": "node scripts/smoke-release.mjs",
+    "smoke:saas": "node scripts/smoke-saas-release.mjs",
+    "smoke:saas:postgres": "node scripts/smoke-saas-postgres.mjs",
+    "smoke:saas:tenant-business-postgres": "node scripts/smoke-saas-tenant-business-postgres.mjs",
+    "smoke:queue:redis": "node scripts/smoke-redis-queue.mjs",
+    "smoke:business-db:postgres": "node scripts/smoke-business-db-postgres.mjs",
+    "smoke:web:private": "node scripts/smoke-web-private.mjs",
+    "smoke:web:saas": "node scripts/smoke-web-saas.mjs",
     "package:release": "node scripts/package-release.mjs",
     "release:v1": "npm run lint && npm run test && npm run build && npm run smoke:release && npm run package:release",
+    "release:v2": "npm run lint && npm run test && npm run build && npm run smoke:release && npm run smoke:saas && npm run smoke:saas:postgres && npm run smoke:saas:tenant-business-postgres && npm run smoke:queue:redis && npm run smoke:business-db:postgres && npm run smoke:web:private && npm run smoke:web:saas && npm run worker:dry-run -w server && npm run package:release",
     "format": "prettier --write ."
   },
   "keywords": [
@@ -31,7 +41,11 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "@electric-sql/pglite": "^0.4.4",
+    "@electric-sql/pglite-socket": "^0.1.4",
     "concurrently": "^9.2.1",
+    "pglite-server": "^0.1.5",
+    "playwright": "^1.59.1",
     "prettier": "^3.6.2"
   }
 }

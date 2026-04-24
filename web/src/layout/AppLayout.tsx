@@ -1,36 +1,43 @@
 import {
+  ApartmentOutlined,
+  BankOutlined,
   BellOutlined,
   CustomerServiceOutlined,
   LogoutOutlined,
   MenuOutlined,
   SafetyCertificateOutlined,
+  SwapOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Drawer, Layout, Tag, message } from 'antd';
+import { Avatar, Button, Drawer, Layout, Select, Tag, message } from 'antd';
 import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth';
-import { canAccessNavigationItem, getRoleLabel } from '../access';
+import { canAccessNavigationItem, getPlatformRoleLabel, getRoleLabel } from '../access';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
-import { navigationGroups } from '../navigation';
+import { navigationGroups, platformNavigationGroups } from '../navigation';
 
 const { Header, Sider, Content } = Layout;
 
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { logout, memberships, platformUser, scope, selectTenant, tenant, user } = useAuth();
   const [messageApi, contextHolder] = message.useMessage();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [switchingTenantId, setSwitchingTenantId] = useState<number | null>(null);
+  const isPlatformScope = scope === 'platform';
+  const currentActor = isPlatformScope ? platformUser : user;
 
-  const visibleGroups = navigationGroups
+  const visibleBusinessGroups = navigationGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => canAccessNavigationItem(user?.role, item)),
     }))
     .filter((group) => group.items.length > 0);
+  const visibleGroups = isPlatformScope ? platformNavigationGroups : visibleBusinessGroups;
 
   const isChatFirstRoute = location.pathname.startsWith('/workspace/ai-service');
 
@@ -50,13 +57,30 @@ export function AppLayout() {
     }
   };
 
+  const handleTenantSwitch = async (tenantId: number) => {
+    if (switchingTenantId === tenantId) {
+      return;
+    }
+
+    setSwitchingTenantId(tenantId);
+    try {
+      await selectTenant(tenantId);
+      navigate('/dashboard', { replace: true });
+      messageApi.success('已切换到新的租户工作台');
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : '切换租户失败，请稍后重试');
+    } finally {
+      setSwitchingTenantId(null);
+    }
+  };
+
   const renderNavigation = (mode: 'desktop' | 'mobile') => (
     <div className={`app-sider-scroll${mode === 'mobile' ? ' is-mobile' : ''}`}>
       <div className="app-sider-brand">
         <div className="app-brand-logo">鱼</div>
         <div className="app-sider-brand-text">
-          <span className="app-sider-brand-name">Sale Compass</span>
-          <span className="app-sider-brand-sub">经营控制台</span>
+          <span className="app-sider-brand-name">{isPlatformScope ? 'SaaS Control' : 'Sale Compass'}</span>
+          <span className="app-sider-brand-sub">{isPlatformScope ? '平台控制面' : '经营控制台'}</span>
         </div>
       </div>
 
@@ -96,7 +120,7 @@ export function AppLayout() {
   );
 
   return (
-    <Layout className="app-shell">
+    <Layout className="app-shell" data-testid="app-shell">
       {contextHolder}
       <div className="app-shell-backdrop" />
 
@@ -121,10 +145,22 @@ export function AppLayout() {
               className="mobile-nav-trigger"
               onClick={() => setMobileNavOpen(true)}
             />
-            <button type="button" className="app-brand" onClick={() => navigate('/dashboard')}>
+            <button
+              type="button"
+              className="app-brand"
+              onClick={() =>
+                navigate(
+                  isPlatformScope
+                    ? memberships.length > 0
+                      ? '/auth/select-tenant'
+                      : '/platform/tenants'
+                    : '/dashboard',
+                )
+              }
+            >
               <div className="app-brand-copy">
-                <div className="app-brand-kicker">SALE COMPASS</div>
-                <div className="app-brand-title">闲鱼卖家工作台</div>
+                <div className="app-brand-kicker">{isPlatformScope ? 'SAAS CONTROL PLANE' : 'SALE COMPASS'}</div>
+                <div className="app-brand-title">{isPlatformScope ? '租户与平台控制面' : '闲鱼卖家工作台'}</div>
               </div>
             </button>
           </div>
@@ -132,24 +168,55 @@ export function AppLayout() {
           <div className="app-shell-actions">
             <div className="app-shell-status-group">
               <Tag className="shell-tag shell-tag-primary" bordered={false}>
-                <SafetyCertificateOutlined /> 安全模式
+                <SafetyCertificateOutlined /> {isPlatformScope ? '平台模式' : '安全模式'}
               </Tag>
+              {scope === 'tenant' && tenant ? (
+                <Tag className="shell-tag" bordered={false}>
+                  <BankOutlined /> {tenant.displayName}
+                </Tag>
+              ) : null}
             </div>
             <div className="app-shell-utility-group">
-              <button
-                type="button"
-                className="header-link-button"
-                onClick={() => navigate('/workspace/ai-service')}
-              >
-                <CustomerServiceOutlined /> 客服
-              </button>
-              <button
-                type="button"
-                className="header-link-button"
-                onClick={() => navigate('/workspace/system-monitoring')}
-              >
-                <BellOutlined /> 通知
-              </button>
+              {isPlatformScope ? (
+                <button
+                  type="button"
+                  className="header-link-button"
+                  onClick={() => navigate('/auth/select-tenant')}
+                >
+                  <ApartmentOutlined /> 选择租户
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="header-link-button"
+                    onClick={() => navigate('/workspace/ai-service')}
+                  >
+                    <CustomerServiceOutlined /> 客服
+                  </button>
+                  <button
+                    type="button"
+                    className="header-link-button"
+                    onClick={() => navigate('/workspace/system-monitoring')}
+                  >
+                    <BellOutlined /> 通知
+                  </button>
+                </>
+              )}
+              {scope === 'tenant' && memberships.length > 0 ? (
+                <Select
+                  value={tenant?.id}
+                  className="header-tenant-select"
+                  popupMatchSelectWidth={280}
+                  suffixIcon={<SwapOutlined />}
+                  loading={switchingTenantId !== null}
+                  onChange={(value) => void handleTenantSwitch(value)}
+                  options={memberships.map((item) => ({
+                    value: item.tenant.id,
+                    label: `${item.tenant.displayName} · ${item.membership.systemRole === 'admin' ? '管理员' : item.membership.systemRole}`,
+                  }))}
+                />
+              ) : null}
               <div className="header-user-box">
                 <Avatar
                   icon={<UserOutlined />}
@@ -157,8 +224,12 @@ export function AppLayout() {
                   style={{ background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' }}
                 />
                 <div>
-                  <div className="header-user-name">{user?.displayName}</div>
-                  <div className="header-user-role">{getRoleLabel(user?.role)}</div>
+                  <div className="header-user-name">{currentActor?.displayName}</div>
+                  <div className="header-user-role">
+                    {isPlatformScope
+                      ? getPlatformRoleLabel(platformUser?.role)
+                      : getRoleLabel(user?.role)}
+                  </div>
                 </div>
               </div>
               <ChangePasswordButton />

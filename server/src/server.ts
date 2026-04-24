@@ -1,10 +1,12 @@
 import { createApp } from './app.js';
 import {
   appConfig,
+  assertEnterpriseLaunchReadiness,
   assertRuntimeStartupReadiness,
   assertValidRuntimeConfig,
   ensureRuntimeDirectories,
 } from './config.js';
+import { createDatabaseProviderRuntimeSummary } from './database-provider.js';
 import { createAppLogger } from './observability.js';
 
 ensureRuntimeDirectories(appConfig);
@@ -13,6 +15,19 @@ const logger = createAppLogger(appConfig);
 
 assertValidRuntimeConfig(appConfig);
 assertRuntimeStartupReadiness(appConfig, { requireWebBuild: true });
+if (appConfig.deploymentMode === 'saas' && appConfig.runtimeMode === 'prod') {
+  assertEnterpriseLaunchReadiness(
+    appConfig,
+    createDatabaseProviderRuntimeSummary({
+      privateDbPath: appConfig.dbPath,
+      tenantDatabaseRoot: appConfig.tenantDatabaseRoot,
+      businessDatabaseEngine: appConfig.businessDatabaseEngine,
+      businessPostgresUrl: appConfig.businessPostgresUrl,
+      tenantBusinessDatabaseEngine: appConfig.tenantBusinessDatabaseEngine,
+      tenantBusinessPostgresUrlTemplate: appConfig.tenantBusinessPostgresUrlTemplate,
+    }),
+  );
+}
 
 const app = await createApp();
 

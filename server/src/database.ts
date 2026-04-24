@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 
 import Database from 'better-sqlite3';
 import {
@@ -18,6 +18,7 @@ import {
 import { decryptSecret, encryptSecret, hashPassword, maskSecret } from './auth.js';
 import { createSqliteBackup, restoreSqliteBackup } from './backup-utils.js';
 import { CURRENT_SCHEMA_VERSION } from './db-ops.js';
+import { buildOpenPlatformSecretSettingKey, OpenPlatformRepository } from './open-platform-repository.js';
 import { OrderReadRepository } from './order-read-repository.js';
 import { StoreAccessReadRepository } from './store-access-read-repository.js';
 import { StoreAccessWriteRepository } from './store-access-write-repository.js';
@@ -294,6 +295,12 @@ type CardDeliveryJobStatus = 'pending' | 'success' | 'failed' | 'recycled';
 type CardOutboundStatus = 'sent' | 'resent' | 'recycled' | 'revoked';
 type CardRecycleAction = 'recycle' | 'revoke';
 type DirectChargeSupplierStatus = 'online' | 'warning' | 'offline';
+type FulfillmentQueueTaskType =
+  | 'card_delivery_job_run'
+  | 'direct_charge_dispatch'
+  | 'direct_charge_retry'
+  | 'direct_charge_manual_review';
+type FulfillmentQueueTaskStatus = 'pending' | 'running' | 'succeeded' | 'dead_letter';
 type DirectChargeJobStatus =
   | 'pending_dispatch'
   | 'processing'
@@ -1042,6 +1049,7 @@ function formatNullableShiftedDateTime(
 export class StatisticsDatabase {
   private db: Database.Database;
   private usersTokenVersionColumnEnsured = false;
+  private readonly openPlatformRepository: OpenPlatformRepository;
   private readonly orderReadRepository: OrderReadRepository;
   private readonly storeAccessReadRepository: StoreAccessReadRepository;
   private readonly storeAccessWriteRepository: StoreAccessWriteRepository;
@@ -1061,6 +1069,13 @@ export class StatisticsDatabase {
       getOrderFulfillmentTypeText: (type) => this.getOrderFulfillmentTypeText(type),
       getOrderFulfillmentQueueText: (queue) => this.getOrderFulfillmentQueueText(queue),
     });
+    this.openPlatformRepository = new OpenPlatformRepository(() => this.db, {
+      secureConfigSecret: appConfig.secureConfigSecret,
+      getDashboard: (filters) => this.getDashboard(filters),
+      getOrdersOverview: (filters) => this.getOrdersOverview(filters),
+      upsertSecureSetting: (key, description, value, updatedByUserId) =>
+        this.upsertSecureSetting(key, description, value, updatedByUserId),
+    });
     this.storeAccessReadRepository = new StoreAccessReadRepository(
       () => this.db,
       appConfig.secureConfigSecret,
@@ -1069,6 +1084,105 @@ export class StatisticsDatabase {
       () => this.db,
       appConfig.secureConfigSecret,
     );
+  }
+
+  openPlatformGetAppsDetail() {
+    return this.openPlatformRepository.getOpenPlatformAppsDetail();
+  }
+
+  openPlatformGetDocsDetail() {
+    return this.openPlatformRepository.getOpenPlatformDocsDetail();
+  }
+
+  openPlatformGetSettingsDetail() {
+    return this.openPlatformRepository.getOpenPlatformSettingsDetail();
+  }
+
+  openPlatformGetWhitelistDetail() {
+    return this.openPlatformRepository.getOpenPlatformWhitelistDetail();
+  }
+
+  openPlatformCreateApp(input: {
+    appName: string;
+    ownerName: string;
+    contactName?: string;
+    callbackUrl?: string;
+    scopes: string[];
+    rateLimitPerMinute?: number;
+    updatedByUserId: number | null;
+  }) {
+    return this.openPlatformRepository.createOpenPlatformApp(input);
+  }
+
+  openPlatformUpdateAppStatus(appId: number, status: 'active' | 'suspended') {
+    return this.openPlatformRepository.updateOpenPlatformAppStatus(appId, status);
+  }
+
+  openPlatformRotateAppSecret(appId: number, updatedByUserId: number | null) {
+    return this.openPlatformRepository.rotateOpenPlatformAppSecret(appId, updatedByUserId);
+  }
+
+  openPlatformUpdateSettings(input: {
+    webhookBaseUrl?: string;
+    notifyEmail?: string;
+    publishedVersion?: string;
+    defaultRateLimitPerMinute?: number;
+    signatureTtlSeconds?: number;
+    whitelistEnforced?: boolean;
+    updatedByUserId: number | null;
+  }) {
+    return this.openPlatformRepository.updateOpenPlatformSettings(input);
+  }
+
+  openPlatformCreateWhitelistRule(input: {
+    ruleType: 'ip';
+    ruleValue: string;
+    description?: string;
+    enabled?: boolean;
+    updatedByUserId: number | null;
+  }) {
+    return this.openPlatformRepository.createOpenPlatformWhitelistRule(input);
+  }
+
+  openPlatformUpdateWhitelistRuleEnabled(ruleId: number, enabled: boolean, updatedByUserId: number | null) {
+    return this.openPlatformRepository.updateOpenPlatformWhitelistRuleEnabled(ruleId, enabled, updatedByUserId);
+  }
+
+  openPlatformVerifyRequest(input: {
+    tenantKey: string;
+    appKey: string;
+    timestamp: string;
+    signature: string;
+    httpMethod: string;
+    routePath: string;
+    requestIp: string;
+    requiredScope: string;
+  }) {
+    return this.openPlatformRepository.verifyOpenPlatformRequest(input);
+  }
+
+  openPlatformRecordCallLog(input: {
+    appId: number | null;
+    appKey: string;
+    tenantKey: string;
+    traceId: string;
+    httpMethod: string;
+    routePath: string;
+    requestIp: string | null;
+    statusCode: number;
+    callStatus: 'success' | 'blocked' | 'failure';
+    durationMs: number;
+    detail: string;
+  }) {
+    this.openPlatformRepository.recordOpenPlatformCallLog(input);
+  }
+
+  openPlatformGetPublicDashboardSummary() {
+    return this.openPlatformRepository.getOpenPlatformPublicDashboardSummary();
+  }
+
+  openPlatformGetPublicOrdersOverview() {
+    return this.openPlatformRepository.getOpenPlatformPublicOrdersOverview();
   }
 
   private usesDefaultDataRoot() {
@@ -1272,6 +1386,7 @@ export class StatisticsDatabase {
       this.ensureDemoUsers();
       this.ensureSecureSettings(true);
       this.ensureWorkspaceData(true);
+      this.ensureOpenPlatformData(true);
       this.ensureWorkspaceBusinessData();
       this.ensureCardDeliveryEngineData(true);
       this.ensureDirectChargeEngineData(true);
@@ -1294,6 +1409,7 @@ export class StatisticsDatabase {
       this.ensureDemoUsers();
       this.ensureSecureSettings(true);
       this.ensureWorkspaceData(true);
+      this.ensureOpenPlatformData(true);
       this.ensureWorkspaceBusinessData();
       this.ensureCardDeliveryEngineData(true);
       this.ensureDirectChargeEngineData(true);
@@ -1308,6 +1424,7 @@ export class StatisticsDatabase {
 
     this.ensureSecureSettings(false);
     this.ensureWorkspaceData(false);
+    this.ensureOpenPlatformData(false);
     this.ensureCardDeliveryEngineData(false);
     this.ensureDirectChargeEngineData(false);
     this.ensureStoreManagementData(false);
@@ -1853,6 +1970,28 @@ export class StatisticsDatabase {
       CREATE INDEX IF NOT EXISTS idx_direct_charge_jobs_status ON direct_charge_jobs(task_status, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_direct_charge_callbacks_job_id ON direct_charge_callbacks(job_id, received_at DESC);
       CREATE INDEX IF NOT EXISTS idx_direct_charge_reconciliations_status ON direct_charge_reconciliations(reconcile_status, updated_at DESC);
+    `);
+
+    ensureTable(`
+      CREATE TABLE IF NOT EXISTS fulfillment_queue_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_key TEXT NOT NULL UNIQUE,
+        task_type TEXT NOT NULL,
+        ref_id INTEGER NOT NULL,
+        payload_text TEXT,
+        task_status TEXT NOT NULL DEFAULT 'pending',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        max_retry INTEGER NOT NULL DEFAULT 1,
+        last_error TEXT,
+        available_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_fulfillment_queue_status
+        ON fulfillment_queue_tasks(task_status, available_at, updated_at DESC);
     `);
 
     ensureTable(`
@@ -2454,6 +2593,351 @@ export class StatisticsDatabase {
     DEMO_SECURE_SETTINGS.forEach((setting) => {
       this.upsertSecureSetting(setting.key, setting.description, setting.value, null);
     });
+  }
+
+  private ensureOpenPlatformData(includeSampleData: boolean) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.db
+      .prepare(
+        `
+          INSERT OR IGNORE INTO open_platform_settings (
+            id,
+            webhook_base_url,
+            notify_email,
+            published_version,
+            default_rate_limit_per_minute,
+            signature_ttl_seconds,
+            whitelist_enforced,
+            created_at,
+            updated_at
+          ) VALUES (
+            1,
+            '',
+            '',
+            'v1',
+            120,
+            300,
+            1,
+            @createdAt,
+            @updatedAt
+          )
+        `,
+      )
+      .run({
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const docsCount = this.db
+      .prepare('SELECT COUNT(*) AS count FROM open_platform_docs')
+      .get() as { count: number };
+    if (docsCount.count === 0) {
+      const insertDoc = this.db.prepare(
+        `
+          INSERT INTO open_platform_docs (
+            doc_key,
+            title,
+            category,
+            http_method,
+            route_path,
+            status,
+            scope_text,
+            version_tag,
+            description,
+            sample_payload,
+            created_at,
+            updated_at
+          ) VALUES (
+            @docKey,
+            @title,
+            @category,
+            @httpMethod,
+            @routePath,
+            @status,
+            @scopeText,
+            @versionTag,
+            @description,
+            @samplePayload,
+            @createdAt,
+            @updatedAt
+          )
+        `,
+      );
+
+      [
+        {
+          docKey: 'dashboard-summary',
+          title: '经营看板摘要',
+          category: '数据读取',
+          httpMethod: 'GET',
+          routePath: '/api/public/open-platform/:tenantKey/dashboard/summary',
+          status: 'published',
+          scopeText: 'dashboard.read',
+          versionTag: 'v1',
+          description: '供 ERP、运营台或 BI 抓取租户经营看板摘要，返回订单、成交额、店铺与履约核心指标。',
+          samplePayload: JSON.stringify({ preset: 'last30Days' }),
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          docKey: 'orders-overview',
+          title: '订单中心概览',
+          category: '数据读取',
+          httpMethod: 'GET',
+          routePath: '/api/public/open-platform/:tenantKey/orders/overview',
+          status: 'published',
+          scopeText: 'orders.read',
+          versionTag: 'v1',
+          description: '返回订单中心的待处理量、已完成量、履约异常量等统计信息。',
+          samplePayload: JSON.stringify({ preset: 'last30Days' }),
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          docKey: 'webhook-delivery',
+          title: '履约状态回调约定',
+          category: '回调协议',
+          httpMethod: 'POST',
+          routePath: '/api/public/open-platform/:tenantKey/webhooks/fulfillment',
+          status: 'draft',
+          scopeText: 'webhook.receive',
+          versionTag: 'v1',
+          description: '预留履约回调规范，当前阶段用于文档占位和联调准备。',
+          samplePayload: JSON.stringify({ orderNo: 'GF2026041700001', status: 'fulfilled' }),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ].forEach((row) => insertDoc.run(row));
+    }
+
+    if (!includeSampleData) {
+      return;
+    }
+
+    const appCount = this.db
+      .prepare('SELECT COUNT(*) AS count FROM open_platform_apps')
+      .get() as { count: number };
+    if (appCount.count === 0) {
+      const insertApp = this.db.prepare(
+        `
+          INSERT INTO open_platform_apps (
+            app_key,
+            app_name,
+            owner_name,
+            contact_name,
+            callback_url,
+            status,
+            scopes_text,
+            secret_setting_key,
+            rate_limit_per_minute,
+            last_called_at,
+            created_at,
+            updated_at,
+            updated_by
+          ) VALUES (
+            @appKey,
+            @appName,
+            @ownerName,
+            @contactName,
+            @callbackUrl,
+            @status,
+            @scopesText,
+            @secretSettingKey,
+            @rateLimitPerMinute,
+            @lastCalledAt,
+            @createdAt,
+            @updatedAt,
+            NULL
+          )
+        `,
+      );
+
+      [
+        {
+          appKey: 'demo-erp',
+          appName: '演示 ERP',
+          ownerName: '运营中台',
+          contactName: 'ops@demo.local',
+          callbackUrl: 'https://erp.demo.local/webhooks/fulfillment',
+          status: 'active',
+          scopesText: 'dashboard.read,orders.read',
+          secretSettingKey: buildOpenPlatformSecretSettingKey('demo-erp'),
+          rateLimitPerMinute: 240,
+          lastCalledAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          appKey: 'demo-bi',
+          appName: '演示 BI',
+          ownerName: '数据分析组',
+          contactName: 'bi@demo.local',
+          callbackUrl: 'https://bi.demo.local/hooks/goofish',
+          status: 'suspended',
+          scopesText: 'dashboard.read',
+          secretSettingKey: buildOpenPlatformSecretSettingKey('demo-bi'),
+          rateLimitPerMinute: 120,
+          lastCalledAt: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ].forEach((row) => {
+        insertApp.run(row);
+        this.upsertSecureSetting(
+          row.secretSettingKey,
+          `开放平台应用 ${row.appName} 的签名密钥`,
+          row.appKey === 'demo-erp'
+            ? 'demo-erp-secret-20260417'
+            : 'demo-bi-secret-20260417',
+          null,
+        );
+      });
+    }
+
+    const whitelistCount = this.db
+      .prepare('SELECT COUNT(*) AS count FROM open_platform_whitelist_rules')
+      .get() as { count: number };
+    if (whitelistCount.count === 0) {
+      const insertRule = this.db.prepare(
+        `
+          INSERT INTO open_platform_whitelist_rules (
+            rule_type,
+            rule_value,
+            description,
+            enabled,
+            hit_count,
+            last_hit_at,
+            created_at,
+            updated_at,
+            updated_by
+          ) VALUES (
+            @ruleType,
+            @ruleValue,
+            @description,
+            @enabled,
+            @hitCount,
+            @lastHitAt,
+            @createdAt,
+            @updatedAt,
+            NULL
+          )
+        `,
+      );
+
+      [
+        {
+          ruleType: 'ip',
+          ruleValue: '127.0.0.1',
+          description: '本机联调地址',
+          enabled: 1,
+          hitCount: 8,
+          lastHitAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          ruleType: 'ip',
+          ruleValue: '10.0.*',
+          description: '办公网段占位规则',
+          enabled: 0,
+          hitCount: 0,
+          lastHitAt: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ].forEach((row) => insertRule.run(row));
+    }
+
+    const callLogCount = this.db
+      .prepare('SELECT COUNT(*) AS count FROM open_platform_call_logs')
+      .get() as { count: number };
+    if (callLogCount.count === 0) {
+      const app = this.db
+        .prepare(
+          `
+            SELECT id, app_key AS appKey
+            FROM open_platform_apps
+            ORDER BY id
+            LIMIT 1
+          `,
+        )
+        .get() as { id: number; appKey: string } | undefined;
+      if (app) {
+        const insertLog = this.db.prepare(
+          `
+            INSERT INTO open_platform_call_logs (
+              app_id,
+              app_key,
+              tenant_key,
+              trace_id,
+              http_method,
+              route_path,
+              request_ip,
+              status_code,
+              call_status,
+              duration_ms,
+              detail,
+              created_at
+            ) VALUES (
+              @appId,
+              @appKey,
+              @tenantKey,
+              @traceId,
+              @httpMethod,
+              @routePath,
+              @requestIp,
+              @statusCode,
+              @callStatus,
+              @durationMs,
+              @detail,
+              @createdAt
+            )
+          `,
+        );
+
+        [
+          {
+            appId: app.id,
+            appKey: app.appKey,
+            tenantKey: 'private',
+            traceId: `opl_${randomUUID().slice(0, 8)}`,
+            httpMethod: 'GET',
+            routePath: '/api/public/open-platform/private/dashboard/summary',
+            requestIp: '127.0.0.1',
+            statusCode: 200,
+            callStatus: 'success',
+            durationMs: 42,
+            detail: '演示数据回放成功',
+            createdAt: now,
+          },
+          {
+            appId: app.id,
+            appKey: app.appKey,
+            tenantKey: 'private',
+            traceId: `opl_${randomUUID().slice(0, 8)}`,
+            httpMethod: 'GET',
+            routePath: '/api/public/open-platform/private/orders/overview',
+            requestIp: '10.0.0.8',
+            statusCode: 403,
+            callStatus: 'blocked',
+            durationMs: 11,
+            detail: '来源 IP 未命中白名单',
+            createdAt: now,
+          },
+        ].forEach((row) => insertLog.run(row));
+      }
+    }
+  }
+
+  private normalizeOpenPlatformScopes(scopesText: string) {
+    return scopesText
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  private buildOpenPlatformSecretSettingKey(appKey: string) {
+    return buildOpenPlatformSecretSettingKey(appKey);
   }
 
   getFilterOptions(): FilterOptions {
@@ -3353,6 +3837,311 @@ export class StatisticsDatabase {
     };
   }
 
+  private enqueueFulfillmentQueueTask(input: {
+    taskKey: string;
+    taskType: FulfillmentQueueTaskType;
+    refId: number;
+    payloadText?: string | null;
+    maxRetry?: number;
+    now: string;
+  }) {
+    const existing = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            task_status AS taskStatus
+          FROM fulfillment_queue_tasks
+          WHERE task_key = ?
+          LIMIT 1
+        `,
+      )
+      .get(input.taskKey) as
+      | {
+          id: number;
+          taskStatus: FulfillmentQueueTaskStatus;
+        }
+      | undefined;
+
+    if (existing) {
+      if (existing.taskStatus === 'running') {
+        return {
+          taskId: existing.id,
+          taskStatus: existing.taskStatus,
+          accepted: true,
+          queued: true,
+          idempotent: true,
+        };
+      }
+
+      if (existing.taskStatus === 'succeeded') {
+        return {
+          taskId: existing.id,
+          taskStatus: existing.taskStatus,
+          accepted: false,
+          queued: false,
+          idempotent: true,
+        };
+      }
+
+      this.db
+        .prepare(
+          `
+            UPDATE fulfillment_queue_tasks
+            SET
+              payload_text = @payloadText,
+              task_status = 'pending',
+              retry_count = 0,
+              max_retry = @maxRetry,
+              last_error = NULL,
+              available_at = @availableAt,
+              updated_at = @updatedAt,
+              started_at = NULL,
+              completed_at = NULL
+            WHERE id = @id
+          `,
+        )
+        .run({
+          id: existing.id,
+          payloadText: input.payloadText ?? null,
+          maxRetry: Math.max(input.maxRetry ?? 1, 1),
+          availableAt: input.now,
+          updatedAt: input.now,
+        });
+
+      return {
+        taskId: existing.id,
+        taskStatus: 'pending' as const,
+        accepted: true,
+        queued: true,
+        idempotent: existing.taskStatus === 'pending',
+      };
+    }
+
+    const result = this.db
+      .prepare(
+        `
+          INSERT INTO fulfillment_queue_tasks (
+            task_key,
+            task_type,
+            ref_id,
+            payload_text,
+            task_status,
+            retry_count,
+            max_retry,
+            available_at,
+            created_at,
+            updated_at
+          ) VALUES (
+            @taskKey,
+            @taskType,
+            @refId,
+            @payloadText,
+            'pending',
+            0,
+            @maxRetry,
+            @availableAt,
+            @createdAt,
+            @updatedAt
+          )
+        `,
+      )
+      .run({
+        taskKey: input.taskKey,
+        taskType: input.taskType,
+        refId: input.refId,
+        payloadText: input.payloadText ?? null,
+        maxRetry: Math.max(input.maxRetry ?? 1, 1),
+        availableAt: input.now,
+        createdAt: input.now,
+        updatedAt: input.now,
+      });
+
+    return {
+      taskId: Number(result.lastInsertRowid),
+      taskStatus: 'pending' as const,
+      accepted: true,
+      queued: true,
+      idempotent: false,
+    };
+  }
+
+  listPendingFulfillmentQueueTaskIds(limit = 20) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    return this.db
+      .prepare(
+        `
+          SELECT id
+          FROM fulfillment_queue_tasks
+          WHERE task_status = 'pending'
+            AND available_at <= ?
+          ORDER BY available_at ASC, id ASC
+          LIMIT ?
+        `,
+      )
+      .all(now, Math.max(limit, 1))
+      .map((row) => Number((row as { id: number }).id));
+  }
+
+  claimFulfillmentQueueTask(taskId: number) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const claimResult = this.db
+      .prepare(
+        `
+          UPDATE fulfillment_queue_tasks
+          SET
+            task_status = 'running',
+            started_at = @startedAt,
+            updated_at = @updatedAt
+          WHERE id = @id
+            AND task_status = 'pending'
+            AND available_at <= @availableAt
+        `,
+      )
+      .run({
+        id: taskId,
+        startedAt: now,
+        updatedAt: now,
+        availableAt: now,
+      });
+
+    if (claimResult.changes === 0) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            task_key AS taskKey,
+            task_type AS taskType,
+            ref_id AS refId,
+            payload_text AS payloadText,
+            task_status AS taskStatus,
+            retry_count AS retryCount,
+            max_retry AS maxRetry,
+            last_error AS lastError,
+            available_at AS availableAt,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            started_at AS startedAt,
+            completed_at AS completedAt
+          FROM fulfillment_queue_tasks
+          WHERE id = ?
+          LIMIT 1
+        `,
+      )
+      .get(taskId) as
+      | {
+          id: number;
+          taskKey: string;
+          taskType: FulfillmentQueueTaskType;
+          refId: number;
+          payloadText: string | null;
+          taskStatus: FulfillmentQueueTaskStatus;
+          retryCount: number;
+          maxRetry: number;
+          lastError: string | null;
+          availableAt: string;
+          createdAt: string;
+          updatedAt: string;
+          startedAt: string | null;
+          completedAt: string | null;
+        }
+      | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    let payload: Record<string, unknown> | null = null;
+    if (row.payloadText?.trim()) {
+      try {
+        payload = JSON.parse(row.payloadText) as Record<string, unknown>;
+      } catch {
+        payload = null;
+      }
+    }
+
+    return {
+      ...row,
+      payload,
+    };
+  }
+
+  completeFulfillmentQueueTask(taskId: number) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.db
+      .prepare(
+        `
+          UPDATE fulfillment_queue_tasks
+          SET
+            task_status = 'succeeded',
+            last_error = NULL,
+            updated_at = @updatedAt,
+            completed_at = @completedAt
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: taskId,
+        updatedAt: now,
+        completedAt: now,
+      });
+  }
+
+  failFulfillmentQueueTask(taskId: number, errorMessage: string) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const row = this.db
+      .prepare(
+        `
+          SELECT retry_count AS retryCount, max_retry AS maxRetry
+          FROM fulfillment_queue_tasks
+          WHERE id = ?
+          LIMIT 1
+        `,
+      )
+      .get(taskId) as { retryCount: number; maxRetry: number } | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    const nextRetryCount = row.retryCount + 1;
+    const nextStatus: FulfillmentQueueTaskStatus =
+      nextRetryCount >= Math.max(row.maxRetry, 1) ? 'dead_letter' : 'pending';
+
+    this.db
+      .prepare(
+        `
+          UPDATE fulfillment_queue_tasks
+          SET
+            task_status = @taskStatus,
+            retry_count = @retryCount,
+            last_error = @lastError,
+            available_at = @availableAt,
+            updated_at = @updatedAt,
+            completed_at = @completedAt
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: taskId,
+        taskStatus: nextStatus,
+        retryCount: nextRetryCount,
+        lastError: errorMessage,
+        availableAt: now,
+        updatedAt: now,
+        completedAt: nextStatus === 'dead_letter' ? now : null,
+      });
+
+    return {
+      taskStatus: nextStatus,
+      retryCount: nextRetryCount,
+    };
+  }
+
   retryOrderFulfillment(orderId: number) {
     const context = this.getOrderFulfillmentActionContext(orderId);
     if (!context) {
@@ -3376,6 +4165,30 @@ export class StatisticsDatabase {
     return null;
   }
 
+  queueOrderFulfillmentRetry(orderId: number) {
+    const context = this.getOrderFulfillmentActionContext(orderId);
+    if (!context) {
+      return null;
+    }
+
+    if (context.fulfillmentType === 'card') {
+      if (context.cardJobId) {
+        return this.queueCardDeliveryJob('card-delivery', context.cardJobId);
+      }
+      return this.queueCardFulfillment('card-delivery', orderId);
+    }
+
+    if (context.fulfillmentType === 'direct_charge' && context.directJobId) {
+      return this.queueDirectChargeJobDispatch(
+        'distribution-supply',
+        context.directJobId,
+        context.directTaskStatus === 'pending_dispatch' ? 'dispatch' : 'retry',
+      );
+    }
+
+    return null;
+  }
+
   resendOrderFulfillment(orderId: number) {
     const context = this.getOrderFulfillmentActionContext(orderId);
     if (!context || context.fulfillmentType !== 'card' || !context.latestOutboundId) {
@@ -3383,6 +4196,15 @@ export class StatisticsDatabase {
     }
 
     return this.resendCardOutbound('card-records', context.latestOutboundId);
+  }
+
+  queueOrderFulfillmentResend(orderId: number) {
+    const context = this.getOrderFulfillmentActionContext(orderId);
+    if (!context || context.fulfillmentType !== 'card' || !context.latestOutboundId) {
+      return null;
+    }
+
+    return this.queueCardOutboundResend('card-records', context.latestOutboundId);
   }
 
   terminateOrderFulfillment(orderId: number, reason: string, operatorName: string) {
@@ -7189,6 +8011,12 @@ export class StatisticsDatabase {
     authType: number;
     storeId?: number | null;
     createdByUserId?: number | null;
+    seed?: {
+      sessionId: string;
+      createdAt: string;
+      expiresAt: string;
+      providerState?: string | null;
+    };
   }) {
     this.syncStoreAccessState();
     return this.storeAccessWriteRepository.createStoreAuthSession(input);
@@ -9308,8 +10136,16 @@ export class StatisticsDatabase {
         return this.getSystemMonitoringDetail();
       case 'system-accounts':
         return this.getSystemAccountsDetail();
+      case 'open-apps':
+        return this.openPlatformGetAppsDetail();
+      case 'open-docs':
+        return this.openPlatformGetDocsDetail();
       case 'open-logs':
         return this.getOpenLogsDetail();
+      case 'open-settings':
+        return this.openPlatformGetSettingsDetail();
+      case 'open-whitelist':
+        return this.openPlatformGetWhitelistDetail();
       case 'system-configs':
         return this.getSystemConfigsDetail();
       default:
@@ -10227,6 +11063,912 @@ export class StatisticsDatabase {
       ],
       rows,
     };
+  }
+
+  private getOpenPlatformSettingsRow() {
+    return this.db
+      .prepare(
+        `
+          SELECT
+            ops.webhook_base_url AS webhookBaseUrl,
+            ops.notify_email AS notifyEmail,
+            ops.published_version AS publishedVersion,
+            ops.default_rate_limit_per_minute AS defaultRateLimitPerMinute,
+            ops.signature_ttl_seconds AS signatureTtlSeconds,
+            ops.whitelist_enforced AS whitelistEnforced,
+            ops.updated_at AS updatedAt,
+            u.display_name AS updatedByName
+          FROM open_platform_settings ops
+          LEFT JOIN users u ON u.id = ops.updated_by
+          WHERE ops.id = 1
+        `,
+      )
+      .get() as
+      | {
+          webhookBaseUrl: string;
+          notifyEmail: string;
+          publishedVersion: string;
+          defaultRateLimitPerMinute: number;
+          signatureTtlSeconds: number;
+          whitelistEnforced: number;
+          updatedAt: string;
+          updatedByName: string | null;
+        }
+      | undefined;
+  }
+
+  private listOpenPlatformCallLogs(limit = 20) {
+    return this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            app_key AS appKey,
+            tenant_key AS tenantKey,
+            trace_id AS traceId,
+            http_method AS httpMethod,
+            route_path AS routePath,
+            request_ip AS requestIp,
+            status_code AS statusCode,
+            call_status AS callStatus,
+            duration_ms AS durationMs,
+            detail,
+            created_at AS createdAt
+          FROM open_platform_call_logs
+          ORDER BY created_at DESC, id DESC
+          LIMIT ?
+        `,
+      )
+      .all(limit) as Array<{
+      id: number;
+      appKey: string;
+      tenantKey: string | null;
+      traceId: string;
+      httpMethod: string;
+      routePath: string;
+      requestIp: string | null;
+      statusCode: number;
+      callStatus: 'success' | 'blocked' | 'failure';
+      durationMs: number;
+      detail: string;
+      createdAt: string;
+    }>;
+  }
+
+  private listOpenPlatformApps() {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            app.id,
+            app.app_key AS appKey,
+            app.app_name AS appName,
+            app.owner_name AS ownerName,
+            app.contact_name AS contactName,
+            app.callback_url AS callbackUrl,
+            app.status,
+            app.scopes_text AS scopesText,
+            app.rate_limit_per_minute AS rateLimitPerMinute,
+            app.last_called_at AS lastCalledAt,
+            app.created_at AS createdAt,
+            app.updated_at AS updatedAt,
+            ss.value_masked AS secretMasked,
+            COALESCE(stats.successCount, 0) AS successCount,
+            COALESCE(stats.blockedCount, 0) AS blockedCount,
+            COALESCE(stats.failureCount, 0) AS failureCount
+          FROM open_platform_apps app
+          LEFT JOIN secure_settings ss ON ss.key = app.secret_setting_key
+          LEFT JOIN (
+            SELECT
+              app_key,
+              SUM(CASE WHEN call_status = 'success' THEN 1 ELSE 0 END) AS successCount,
+              SUM(CASE WHEN call_status = 'blocked' THEN 1 ELSE 0 END) AS blockedCount,
+              SUM(CASE WHEN call_status = 'failure' THEN 1 ELSE 0 END) AS failureCount
+            FROM open_platform_call_logs
+            WHERE datetime(created_at) >= datetime('now', '-7 day')
+            GROUP BY app_key
+          ) stats ON stats.app_key = app.app_key
+          ORDER BY app.updated_at DESC, app.id DESC
+        `,
+      )
+      .all() as Array<{
+      id: number;
+      appKey: string;
+      appName: string;
+      ownerName: string;
+      contactName: string;
+      callbackUrl: string;
+      status: 'active' | 'suspended' | 'draft';
+      scopesText: string;
+      rateLimitPerMinute: number;
+      lastCalledAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+      secretMasked: string | null;
+      successCount: number;
+      blockedCount: number;
+      failureCount: number;
+    }>;
+
+    return rows.map((row) => ({
+      ...row,
+      scopes: this.normalizeOpenPlatformScopes(row.scopesText),
+      totalCallCount: Number(row.successCount ?? 0) + Number(row.blockedCount ?? 0) + Number(row.failureCount ?? 0),
+      secretMasked: row.secretMasked ?? '鏈敓鎴?',
+    }));
+  }
+
+  private listOpenPlatformDocs() {
+    return this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            doc_key AS docKey,
+            title,
+            category,
+            http_method AS httpMethod,
+            route_path AS routePath,
+            status,
+            scope_text AS scopeText,
+            version_tag AS versionTag,
+            description,
+            sample_payload AS samplePayload,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM open_platform_docs
+          ORDER BY category ASC, id ASC
+        `,
+      )
+      .all() as Array<{
+      id: number;
+      docKey: string;
+      title: string;
+      category: string;
+      httpMethod: string;
+      routePath: string;
+      status: 'published' | 'draft';
+      scopeText: string;
+      versionTag: string;
+      description: string;
+      samplePayload: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }
+
+  private listOpenPlatformWhitelistRules() {
+    return this.db
+      .prepare(
+        `
+          SELECT
+            rule.id AS id,
+            rule.rule_type AS ruleType,
+            rule.rule_value AS ruleValue,
+            rule.description AS description,
+            rule.enabled AS enabled,
+            rule.hit_count AS hitCount,
+            rule.last_hit_at AS lastHitAt,
+            rule.created_at AS createdAt,
+            rule.updated_at AS updatedAt,
+            u.display_name AS updatedByName
+          FROM open_platform_whitelist_rules rule
+          LEFT JOIN users u ON u.id = rule.updated_by
+          ORDER BY rule.enabled DESC, rule.updated_at DESC, rule.id DESC
+        `,
+      )
+      .all() as Array<{
+      id: number;
+      ruleType: 'ip';
+      ruleValue: string;
+      description: string;
+      enabled: number;
+      hitCount: number;
+      lastHitAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+      updatedByName: string | null;
+    }>;
+  }
+
+  getOpenPlatformAppsDetail() {
+    const apps = this.listOpenPlatformApps();
+    const recentCalls = this.listOpenPlatformCallLogs(12);
+    const settings = this.getOpenPlatformSettingsRow();
+
+    return {
+      kind: 'open-apps' as const,
+      title: '寮€鏀惧簲鐢?',
+      description: '绠＄悊绗笁鏂规帴鍏ュ簲鐢ㄣ€佺鍚嶅瘑閽ュ拰杩?7 澶╄皟鐢ㄨ繍琛岀姸鎬併€?',
+      metrics: [
+        { label: '搴旂敤鎬绘暟', value: apps.length, unit: '涓?', helper: '褰撳墠绉熸埛宸插綍鍏ョ殑寮€鏀惧簲鐢?' },
+        { label: '鍚敤搴旂敤', value: apps.filter((row) => row.status === 'active').length, unit: '涓?', helper: '鍙甯稿彂璧峰叕缃戣皟鐢?' },
+        {
+          label: '杩?澶╄皟鐢?',
+          value: recentCalls.length === 0 ? 0 : apps.reduce((total, row) => total + row.totalCallCount, 0),
+          unit: '娆?',
+          helper: '鍖呭惈鎴愬姛銆侀樆鏂拰澶辫触',
+        },
+        {
+          label: '榛樿闄愭祦',
+          value: Number(settings?.defaultRateLimitPerMinute ?? 0),
+          unit: '娆?/鍒嗛挓',
+          helper: '鏂板簲鐢ㄩ粯璁ら€熺巼闄愬埗',
+        },
+      ],
+      apps,
+      recentCalls,
+    };
+  }
+
+  getOpenPlatformDocsDetail() {
+    const docs = this.listOpenPlatformDocs();
+    const settings = this.getOpenPlatformSettingsRow();
+
+    return {
+      kind: 'open-docs' as const,
+      title: '寮€鏀炬枃妗?',
+      description: '缁熶竴缁存姢鍏綉 API 鏂囨。銆佺増鏈爣璇嗗拰绛惧悕绾﹀畾銆?',
+      metrics: [
+        { label: '鏂囨。椤规暟', value: docs.length, unit: '椤?', helper: '鍖呭惈鍙戝竷鍜岃崏绋垮埗鍝?' },
+        {
+          label: '宸插彂甯?',
+          value: docs.filter((row) => row.status === 'published').length,
+          unit: '椤?',
+          helper: '澶栭儴鑱旇皟鍙敤鐨勬枃妗?',
+        },
+        {
+          label: '褰撳墠鐗堟湰',
+          value: settings?.publishedVersion ?? 'v1',
+          unit: '',
+          helper: '鏂囨。瀵瑰鍙戝竷鐗堟湰',
+        },
+        {
+          label: '鍥炶皟鍗忚',
+          value: docs.filter((row) => row.category === '鍥炶皟鍗忚').length,
+          unit: '椤?',
+          helper: '鍥炶皟瑙勮寖涓庣害瀹氭潯鐩?',
+        },
+      ],
+      docs,
+    };
+  }
+
+  getOpenPlatformSettingsDetail() {
+    const settings = this.getOpenPlatformSettingsRow();
+    const apps = this.listOpenPlatformApps();
+    const rules = this.listOpenPlatformWhitelistRules();
+
+    return {
+      kind: 'open-settings' as const,
+      title: '寮€鏀惧钩鍙拌缃?',
+      description: '绠＄悊鍥炶皟鍩熷悕銆侀€熺巼闄愬埗銆佺鍚嶆湁鏁堟湡鍜岀櫧鍚嶅崟寮€鍏炽€?',
+      metrics: [
+        { label: '宸插埛鏂板瘑閽?', value: apps.filter((row) => row.secretMasked !== '鏈敓鎴?').length, unit: '涓?', helper: '寮€鏀惧簲鐢ㄧ鍚嶅瘑閽ヤ负鑴辨晱瀛樺偍' },
+        { label: '鍚敤鐧藉悕鍗?', value: rules.filter((row) => row.enabled).length, unit: '鏉?', helper: '宸插惎鐢ㄧ殑鏉ユ簮闄愬埗瑙勫垯' },
+        { label: '绛惧悕鏈夋晥鏈?', value: Number(settings?.signatureTtlSeconds ?? 0), unit: '绉?', helper: '鍏綉 API 璇锋眰鍏佽鐨勬椂闂村亸宸?' },
+        { label: '榛樿鍥炶皟鍩熷悕', value: settings?.webhookBaseUrl || '鏈厤缃?', unit: '', helper: '缁欏簲鐢ㄩ粯璁ょ殑鍥炶皟鍩熷悕' },
+      ],
+      settings: settings
+        ? {
+            ...settings,
+            whitelistEnforced: Boolean(settings.whitelistEnforced),
+          }
+        : null,
+    };
+  }
+
+  getOpenPlatformWhitelistDetail() {
+    const rules = this.listOpenPlatformWhitelistRules().map((row) => ({
+      ...row,
+      enabled: Boolean(row.enabled),
+    }));
+    const recentCalls = this.listOpenPlatformCallLogs(20);
+
+    return {
+      kind: 'open-whitelist' as const,
+      title: '寮€鏀惧钩鍙扮櫧鍚嶅崟',
+      description: '鎸夋簮 IP 鎺у埗鍏綉 API 鐨勫彲璁块棶鑼冨洿锛屽苟缁撳悎璋冪敤鐣欑棔鍋氶槻鎶ょ幆銆?',
+      metrics: [
+        { label: '瑙勫垯鎬绘暟', value: rules.length, unit: '鏉?', helper: '褰撳墠绉熸埛鐨勭櫧鍚嶅崟鏉＄洰' },
+        { label: '宸插惎鐢?', value: rules.filter((row) => row.enabled).length, unit: '鏉?', helper: '宸插惎鐢ㄥ苟鍙備笌鏍￠獙鐨勮鍒?' },
+        {
+          label: '涓冩棩鍛戒腑',
+          value: rules.reduce((total, row) => total + Number(row.hitCount ?? 0), 0),
+          unit: '娆?',
+          helper: '绱鍛戒腑鐧藉悕鍗曡鍒欑殑娆℃暟',
+        },
+        {
+          label: '杩?澶╅樆鏂?',
+          value: recentCalls.filter((row) => row.callStatus === 'blocked').length,
+          unit: '娆?',
+          helper: '琚櫧鍚嶅崟鎴栫鍚嶆嫆缁濈殑璋冪敤',
+        },
+      ],
+      rules,
+    };
+  }
+
+  createOpenPlatformApp(input: {
+    appName: string;
+    ownerName: string;
+    contactName?: string;
+    callbackUrl?: string;
+    scopes: string[];
+    rateLimitPerMinute?: number;
+    updatedByUserId: number | null;
+  }) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const normalizedBase = input.appName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 24) || 'open-app';
+    let appKey = normalizedBase;
+    let suffix = 2;
+    while (
+      this.db
+        .prepare('SELECT 1 FROM open_platform_apps WHERE app_key = ? LIMIT 1')
+        .get(appKey)
+    ) {
+      appKey = `${normalizedBase}-${suffix}`;
+      suffix += 1;
+    }
+
+    const secretSettingKey = this.buildOpenPlatformSecretSettingKey(appKey);
+    const secretPlainText = randomBytes(24).toString('base64url');
+    this.upsertSecureSetting(
+      secretSettingKey,
+      `开放平台应用 ${input.appName} 的签名密钥`,
+      secretPlainText,
+      input.updatedByUserId,
+    );
+
+    const insertResult = this.db
+      .prepare(
+        `
+          INSERT INTO open_platform_apps (
+            app_key,
+            app_name,
+            owner_name,
+            contact_name,
+            callback_url,
+            status,
+            scopes_text,
+            secret_setting_key,
+            rate_limit_per_minute,
+            created_at,
+            updated_at,
+            updated_by
+          ) VALUES (
+            @appKey,
+            @appName,
+            @ownerName,
+            @contactName,
+            @callbackUrl,
+            'active',
+            @scopesText,
+            @secretSettingKey,
+            @rateLimitPerMinute,
+            @createdAt,
+            @updatedAt,
+            @updatedBy
+          )
+        `,
+      )
+      .run({
+        appKey,
+        appName: input.appName.trim(),
+        ownerName: input.ownerName.trim(),
+        contactName: input.contactName?.trim() ?? '',
+        callbackUrl: input.callbackUrl?.trim() ?? '',
+        scopesText: input.scopes.join(','),
+        secretSettingKey,
+        rateLimitPerMinute: Math.max(input.rateLimitPerMinute ?? 120, 30),
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: input.updatedByUserId,
+      });
+
+    const created = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            app_key AS appKey,
+            app_name AS appName,
+            owner_name AS ownerName,
+            contact_name AS contactName,
+            callback_url AS callbackUrl,
+            status,
+            scopes_text AS scopesText,
+            rate_limit_per_minute AS rateLimitPerMinute,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM open_platform_apps
+          WHERE id = ?
+        `,
+      )
+      .get(Number(insertResult.lastInsertRowid)) as
+      | {
+          id: number;
+          appKey: string;
+          appName: string;
+          ownerName: string;
+          contactName: string;
+          callbackUrl: string;
+          status: 'active' | 'suspended' | 'draft';
+          scopesText: string;
+          rateLimitPerMinute: number;
+          createdAt: string;
+          updatedAt: string;
+        }
+      | undefined;
+
+    return created
+      ? {
+          ...created,
+          scopes: this.normalizeOpenPlatformScopes(created.scopesText),
+          secretPlainText,
+        }
+      : null;
+  }
+
+  updateOpenPlatformAppStatus(appId: number, status: 'active' | 'suspended') {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const result = this.db
+      .prepare(
+        `
+          UPDATE open_platform_apps
+          SET status = @status, updated_at = @updatedAt
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: appId,
+        status,
+        updatedAt: now,
+      });
+
+    if (result.changes === 0) {
+      return null;
+    }
+
+    return this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            app_key AS appKey,
+            app_name AS appName,
+            status,
+            updated_at AS updatedAt
+          FROM open_platform_apps
+          WHERE id = ?
+        `,
+      )
+      .get(appId) as
+      | {
+          id: number;
+          appKey: string;
+          appName: string;
+          status: 'active' | 'suspended' | 'draft';
+          updatedAt: string;
+        }
+      | undefined
+      | null;
+  }
+
+  rotateOpenPlatformAppSecret(appId: number, updatedByUserId: number | null) {
+    const app = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            app_key AS appKey,
+            app_name AS appName,
+            secret_setting_key AS secretSettingKey
+          FROM open_platform_apps
+          WHERE id = ?
+        `,
+      )
+      .get(appId) as
+      | {
+          id: number;
+          appKey: string;
+          appName: string;
+          secretSettingKey: string;
+        }
+      | undefined;
+    if (!app) {
+      return null;
+    }
+
+    const secretPlainText = randomBytes(24).toString('base64url');
+    const setting = this.upsertSecureSetting(
+      app.secretSettingKey,
+      `开放平台应用 ${app.appName} 的签名密钥`,
+      secretPlainText,
+      updatedByUserId,
+    );
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.db
+      .prepare('UPDATE open_platform_apps SET updated_at = ? WHERE id = ?')
+      .run(now, appId);
+
+    return {
+      ...app,
+      secretPlainText,
+      secretMasked: setting.maskedValue,
+      updatedAt: now,
+    };
+  }
+
+  updateOpenPlatformSettings(input: {
+    webhookBaseUrl?: string;
+    notifyEmail?: string;
+    publishedVersion?: string;
+    defaultRateLimitPerMinute?: number;
+    signatureTtlSeconds?: number;
+    whitelistEnforced?: boolean;
+    updatedByUserId: number | null;
+  }) {
+    const current = this.getOpenPlatformSettingsRow();
+    if (!current) {
+      return null;
+    }
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.db
+      .prepare(
+        `
+          UPDATE open_platform_settings
+          SET
+            webhook_base_url = @webhookBaseUrl,
+            notify_email = @notifyEmail,
+            published_version = @publishedVersion,
+            default_rate_limit_per_minute = @defaultRateLimitPerMinute,
+            signature_ttl_seconds = @signatureTtlSeconds,
+            whitelist_enforced = @whitelistEnforced,
+            updated_at = @updatedAt,
+            updated_by = @updatedBy
+          WHERE id = 1
+        `,
+      )
+      .run({
+        webhookBaseUrl: input.webhookBaseUrl?.trim() ?? current.webhookBaseUrl,
+        notifyEmail: input.notifyEmail?.trim() ?? current.notifyEmail,
+        publishedVersion: input.publishedVersion?.trim() ?? current.publishedVersion,
+        defaultRateLimitPerMinute: Math.max(input.defaultRateLimitPerMinute ?? current.defaultRateLimitPerMinute, 30),
+        signatureTtlSeconds: Math.max(input.signatureTtlSeconds ?? current.signatureTtlSeconds, 60),
+        whitelistEnforced: input.whitelistEnforced ?? Boolean(current.whitelistEnforced) ? 1 : 0,
+        updatedAt: now,
+        updatedBy: input.updatedByUserId,
+      });
+
+    return this.getOpenPlatformSettingsDetail().settings;
+  }
+
+  createOpenPlatformWhitelistRule(input: {
+    ruleType: 'ip';
+    ruleValue: string;
+    description?: string;
+    enabled?: boolean;
+    updatedByUserId: number | null;
+  }) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const insertResult = this.db
+      .prepare(
+        `
+          INSERT INTO open_platform_whitelist_rules (
+            rule_type,
+            rule_value,
+            description,
+            enabled,
+            hit_count,
+            created_at,
+            updated_at,
+            updated_by
+          ) VALUES (
+            @ruleType,
+            @ruleValue,
+            @description,
+            @enabled,
+            0,
+            @createdAt,
+            @updatedAt,
+            @updatedBy
+          )
+        `,
+      )
+      .run({
+        ruleType: input.ruleType,
+        ruleValue: input.ruleValue.trim(),
+        description: input.description?.trim() ?? '',
+        enabled: input.enabled ?? true ? 1 : 0,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: input.updatedByUserId,
+      });
+
+    return this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            rule_type AS ruleType,
+            rule_value AS ruleValue,
+            description,
+            enabled,
+            hit_count AS hitCount,
+            last_hit_at AS lastHitAt,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM open_platform_whitelist_rules
+          WHERE id = ?
+        `,
+      )
+      .get(Number(insertResult.lastInsertRowid)) as
+      | {
+          id: number;
+          ruleType: 'ip';
+          ruleValue: string;
+          description: string;
+          enabled: number;
+          hitCount: number;
+          lastHitAt: string | null;
+          createdAt: string;
+          updatedAt: string;
+        }
+      | undefined
+      | null;
+  }
+
+  updateOpenPlatformWhitelistRuleEnabled(ruleId: number, enabled: boolean, updatedByUserId: number | null) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const result = this.db
+      .prepare(
+        `
+          UPDATE open_platform_whitelist_rules
+          SET enabled = @enabled, updated_at = @updatedAt, updated_by = @updatedBy
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: ruleId,
+        enabled: enabled ? 1 : 0,
+        updatedAt: now,
+        updatedBy: updatedByUserId,
+      });
+
+    if (result.changes === 0) {
+      return null;
+    }
+
+    return this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            rule_type AS ruleType,
+            rule_value AS ruleValue,
+            description,
+            enabled,
+            hit_count AS hitCount,
+            last_hit_at AS lastHitAt,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM open_platform_whitelist_rules
+          WHERE id = ?
+        `,
+      )
+      .get(ruleId) as
+      | {
+          id: number;
+          ruleType: 'ip';
+          ruleValue: string;
+          description: string;
+          enabled: number;
+          hitCount: number;
+          lastHitAt: string | null;
+          createdAt: string;
+          updatedAt: string;
+        }
+      | undefined
+      | null;
+  }
+
+  private matchOpenPlatformIpRule(ruleValue: string, ipAddress: string) {
+    const escaped = ruleValue
+      .trim()
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*');
+    const pattern = new RegExp(`^${escaped}$`);
+    return pattern.test(ipAddress.trim());
+  }
+
+  private getOpenPlatformAppSecret(secretSettingKey: string) {
+    const row = this.db
+      .prepare(
+        `
+          SELECT value_encrypted AS valueEncrypted
+          FROM secure_settings
+          WHERE key = ?
+          LIMIT 1
+        `,
+      )
+      .get(secretSettingKey) as { valueEncrypted: string } | undefined;
+
+    if (!row?.valueEncrypted) {
+      return null;
+    }
+
+    return decryptSecret(row.valueEncrypted, appConfig.secureConfigSecret);
+  }
+
+  verifyOpenPlatformRequest(input: {
+    tenantKey: string;
+    appKey: string;
+    timestamp: string;
+    signature: string;
+    httpMethod: string;
+    routePath: string;
+    requestIp: string;
+    requiredScope: string;
+  }) {
+    const app = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            app_key AS appKey,
+            app_name AS appName,
+            status,
+            scopes_text AS scopesText,
+            secret_setting_key AS secretSettingKey,
+            rate_limit_per_minute AS rateLimitPerMinute
+          FROM open_platform_apps
+          WHERE app_key = ?
+          LIMIT 1
+        `,
+      )
+      .get(input.appKey) as
+      | {
+          id: number;
+          appKey: string;
+          appName: string;
+          status: 'active' | 'suspended' | 'draft';
+          scopesText: string;
+          secretSettingKey: string;
+          rateLimitPerMinute: number;
+        }
+      | undefined;
+
+    if (!app) {
+      throw new Error('开放应用不存在');
+    }
+    if (app.status !== 'active') {
+      throw new Error('开放应用已停用');
+    }
+
+    const scopes = this.normalizeOpenPlatformScopes(app.scopesText);
+    if (!scopes.includes(input.requiredScope)) {
+      throw new Error('开放应用未授权当前接口范围');
+    }
+
+    const settings = this.getOpenPlatformSettingsRow();
+    const ttlSeconds = Math.max(Number(settings?.signatureTtlSeconds ?? 300), 60);
+    const requestTime = Number(input.timestamp);
+    if (!Number.isFinite(requestTime)) {
+      throw new Error('签名时间戳无效');
+    }
+    if (Math.abs(Date.now() - requestTime) > ttlSeconds * 1000) {
+      throw new Error('签名已过期');
+    }
+
+    const secret = this.getOpenPlatformAppSecret(app.secretSettingKey);
+    if (!secret) {
+      throw new Error('开放应用未配置签名密钥');
+    }
+
+    const expectedSignature = createHmac('sha256', secret)
+      .update(`${app.appKey}.${input.timestamp}.${input.httpMethod.toUpperCase()}.${input.routePath}`)
+      .digest('hex');
+    if (expectedSignature !== input.signature.trim().toLowerCase()) {
+      throw new Error('签名校验失败');
+    }
+
+    const rules = this.listOpenPlatformWhitelistRules().filter((row) => Boolean(row.enabled));
+    const whitelistEnforced = Boolean(settings?.whitelistEnforced);
+    if (
+      whitelistEnforced &&
+      rules.length > 0 &&
+      !rules.some((rule) => this.matchOpenPlatformIpRule(rule.ruleValue, input.requestIp))
+    ) {
+      throw new Error('来源地址未命中白名单');
+    }
+
+    return {
+      ...app,
+      scopes,
+    };
+  }
+
+  recordOpenPlatformCallLog(input: {
+    appId: number | null;
+    appKey: string;
+    tenantKey: string;
+    traceId: string;
+    httpMethod: string;
+    routePath: string;
+    requestIp: string | null;
+    statusCode: number;
+    callStatus: 'success' | 'blocked' | 'failure';
+    durationMs: number;
+    detail: string;
+  }) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.db
+      .prepare(
+        `
+          INSERT INTO open_platform_call_logs (
+            app_id,
+            app_key,
+            tenant_key,
+            trace_id,
+            http_method,
+            route_path,
+            request_ip,
+            status_code,
+            call_status,
+            duration_ms,
+            detail,
+            created_at
+          ) VALUES (
+            @appId,
+            @appKey,
+            @tenantKey,
+            @traceId,
+            @httpMethod,
+            @routePath,
+            @requestIp,
+            @statusCode,
+            @callStatus,
+            @durationMs,
+            @detail,
+            @createdAt
+          )
+        `,
+      )
+      .run({
+        ...input,
+        createdAt: now,
+        durationMs: Math.max(Math.trunc(input.durationMs), 0),
+      });
+
+    if (input.appId) {
+      this.db
+        .prepare(
+          `
+            UPDATE open_platform_apps
+            SET last_called_at = @lastCalledAt, updated_at = @updatedAt
+            WHERE id = @id
+          `,
+        )
+        .run({
+          id: input.appId,
+          lastCalledAt: now,
+          updatedAt: now,
+        });
+    }
+  }
+
+  getOpenPlatformPublicDashboardSummary() {
+    return this.getDashboard({ preset: 'last30Days' });
+  }
+
+  getOpenPlatformPublicOrdersOverview() {
+    return this.getOrdersOverview({ preset: 'last30Days' });
   }
 
   private getOpenLogsDetail() {
@@ -11181,6 +12923,22 @@ export class StatisticsDatabase {
         `,
       )
       .get() as { count: number };
+    const openPlatformStats = this.db
+      .prepare(
+        `
+          SELECT
+            (SELECT COUNT(*) FROM open_platform_apps) AS appCount,
+            (SELECT COUNT(*) FROM open_platform_apps WHERE status = 'active') AS activeAppCount,
+            (SELECT COUNT(*) FROM open_platform_call_logs WHERE datetime(created_at) >= datetime('now', '-7 day')) AS recentCallCount,
+            (SELECT COUNT(*) FROM open_platform_call_logs WHERE call_status = 'blocked' AND datetime(created_at) >= datetime('now', '-7 day')) AS blockedCallCount
+        `,
+      )
+      .get() as {
+      appCount: number | null;
+      activeAppCount: number | null;
+      recentCallCount: number | null;
+      blockedCallCount: number | null;
+    };
 
     return {
       database: {
@@ -11199,6 +12957,12 @@ export class StatisticsDatabase {
         successCount: Number(backupCount.count ?? 0),
         latestBackupNo: latestBackup?.backupNo ?? null,
         latestBackupAt: latestBackup?.startedAt ?? null,
+      },
+      openPlatform: {
+        appCount: Number(openPlatformStats.appCount ?? 0),
+        activeAppCount: Number(openPlatformStats.activeAppCount ?? 0),
+        recentCallCount: Number(openPlatformStats.recentCallCount ?? 0),
+        blockedCallCount: Number(openPlatformStats.blockedCallCount ?? 0),
       },
       paths: {
         backupDir: this.getBackupRootDir(),
@@ -12776,6 +14540,179 @@ export class StatisticsDatabase {
     return result;
   }
 
+  queueDirectChargeJobDispatch(
+    featureKey: string,
+    jobId: number,
+    mode: 'dispatch' | 'retry' = 'dispatch',
+  ) {
+    if (featureKey !== 'distribution-supply') {
+      return null;
+    }
+
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.refreshDirectChargeTimeoutJobs(now);
+    const context = this.getDirectChargeJobContext(jobId);
+    if (!context) {
+      return null;
+    }
+
+    if (context.taskStatus === 'success') {
+      return {
+        success: true,
+        accepted: false,
+        queued: false,
+        idempotent: true,
+        jobId: context.id,
+        taskStatus: context.taskStatus,
+        supplierOrderNo: context.supplierOrderNo,
+        detail: context.resultDetail ?? '任务已完成。',
+        timeoutAt: context.timeoutAt,
+      };
+    }
+
+    if (
+      context.taskStatus === 'processing' &&
+      context.timeoutAt &&
+      new Date(context.timeoutAt.replace(' ', 'T')).getTime() > new Date(now.replace(' ', 'T')).getTime()
+    ) {
+      return {
+        success: true,
+        accepted: false,
+        queued: false,
+        idempotent: true,
+        jobId: context.id,
+        taskStatus: context.taskStatus,
+        supplierOrderNo: context.supplierOrderNo,
+        detail: context.resultDetail ?? '任务仍在处理中。',
+        timeoutAt: context.timeoutAt,
+      };
+    }
+
+    this.db
+      .prepare(
+        `
+          UPDATE direct_charge_jobs
+          SET
+            task_status = 'pending_dispatch',
+            callback_status = 'pending',
+            verification_status = 'pending',
+            error_message = NULL,
+            result_detail = @resultDetail,
+            timeout_at = NULL,
+            manual_reason = NULL,
+            updated_at = @updatedAt
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: context.id,
+        resultDetail:
+          mode === 'retry' ? '任务已加入后台重试队列。' : '任务已加入后台下发队列。',
+        updatedAt: now,
+      });
+
+    const queuedTask = this.enqueueFulfillmentQueueTask({
+      taskKey:
+        mode === 'retry'
+          ? `direct_charge_retry:${context.id}:${context.retryCount + 1}`
+          : `direct_charge_dispatch:${context.id}`,
+      taskType: mode === 'retry' ? 'direct_charge_retry' : 'direct_charge_dispatch',
+      refId: context.id,
+      maxRetry: Math.max(context.maxRetry + 1, 1),
+      now,
+    });
+
+    this.insertWorkspaceLog(
+      featureKey,
+      mode === 'retry' ? 'retry_queued' : 'dispatch_queued',
+      mode === 'retry'
+        ? `任务 ${context.taskNo} 已加入后台重试队列`
+        : `任务 ${context.taskNo} 已加入后台下发队列`,
+      'Worker 将异步执行供应商下发。',
+    );
+    this.touchWorkspace(featureKey, now);
+
+    return {
+      success: true,
+      accepted: queuedTask.accepted,
+      queued: queuedTask.queued,
+      idempotent: queuedTask.idempotent,
+      jobId: context.id,
+      queueTaskId: queuedTask.taskId,
+      taskStatus: 'pending_dispatch' as const,
+      supplierOrderNo: context.supplierOrderNo,
+      detail:
+        mode === 'retry' ? '任务已加入后台重试队列。' : '任务已加入后台下发队列。',
+    };
+  }
+
+  queueDirectChargeJobManualReview(featureKey: string, jobId: number, reason: string) {
+    if (featureKey !== 'distribution-supply') {
+      return null;
+    }
+
+    const context = this.getDirectChargeJobContext(jobId);
+    if (!context || context.taskStatus === 'success') {
+      return null;
+    }
+
+    const normalizedReason = reason.trim() || '系统转人工处理';
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+
+    this.db
+      .prepare(
+        `
+          UPDATE direct_charge_jobs
+          SET
+            error_message = @errorMessage,
+            result_detail = @resultDetail,
+            manual_reason = @manualReason,
+            updated_at = @updatedAt
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: context.id,
+        errorMessage: normalizedReason,
+        resultDetail: normalizedReason,
+        manualReason: normalizedReason,
+        updatedAt: now,
+      });
+
+    const reasonHash = createHash('sha1')
+      .update(normalizedReason)
+      .digest('hex')
+      .slice(0, 12);
+    const queuedTask = this.enqueueFulfillmentQueueTask({
+      taskKey: `direct_charge_manual_review:${context.id}:${reasonHash}`,
+      taskType: 'direct_charge_manual_review',
+      refId: context.id,
+      payloadText: JSON.stringify({
+        reason: normalizedReason,
+      }),
+      maxRetry: 1,
+      now,
+    });
+
+    this.insertWorkspaceLog(
+      featureKey,
+      'manual_review_queued',
+      `任务 ${context.taskNo} 已加入人工接管队列`,
+      normalizedReason,
+    );
+    this.touchWorkspace(featureKey, now);
+
+    return {
+      success: true,
+      accepted: queuedTask.accepted,
+      queued: queuedTask.queued,
+      idempotent: queuedTask.idempotent,
+      queueTaskId: queuedTask.taskId,
+      taskStatus: 'manual_review_pending' as const,
+      reason: normalizedReason,
+    };
+  }
+
   retryDirectChargeJob(featureKey: string, jobId: number) {
     if (featureKey !== 'distribution-supply') {
       return null;
@@ -12810,6 +14747,39 @@ export class StatisticsDatabase {
     this.touchWorkspace(featureKey, now);
 
     return result;
+  }
+
+  listPendingDirectChargeJobIds(limit = 20) {
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.refreshDirectChargeTimeoutJobs(now);
+
+    return this.db
+      .prepare(
+        `
+          SELECT id
+          FROM direct_charge_jobs
+          WHERE task_status = 'pending_dispatch'
+          ORDER BY updated_at ASC, id ASC
+          LIMIT ?
+        `,
+      )
+      .all(Math.max(limit, 1))
+      .map((row) => Number((row as { id: number }).id));
+  }
+
+  runDirectChargeDispatchJob(featureKey: string, jobId: number) {
+    if (featureKey !== 'distribution-supply') {
+      return null;
+    }
+
+    const context = this.getDirectChargeJobContext(jobId);
+    if (!context) {
+      return null;
+    }
+
+    return context.lastDispatchAt
+      ? this.retryDirectChargeJob(featureKey, jobId)
+      : this.dispatchDirectChargeJob(featureKey, jobId);
   }
 
   markDirectChargeJobManualReview(featureKey: string, jobId: number, reason: string) {
@@ -19856,6 +21826,210 @@ export class StatisticsDatabase {
     return result;
   }
 
+  queueCardFulfillment(featureKey: string, orderId: number) {
+    if (featureKey !== 'card-delivery') {
+      return null;
+    }
+
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const context = this.getCardFulfillmentContext(orderId);
+    if (!context?.cardTypeId) {
+      return null;
+    }
+
+    const existingOutbound = this.db
+      .prepare(
+        `
+          SELECT
+            cor.id,
+            cor.outbound_no AS outboundNo,
+            cor.outbound_status AS outboundStatus,
+            cor.attempt_no AS attemptNo,
+            cii.card_masked AS cardMasked
+          FROM card_outbound_records cor
+          INNER JOIN card_inventory_items cii ON cii.id = cor.inventory_item_id
+          WHERE cor.order_id = ?
+            AND cor.outbound_status IN ('sent', 'resent')
+          ORDER BY cor.id DESC
+          LIMIT 1
+        `,
+      )
+      .get(orderId) as
+      | {
+          id: number;
+          outboundNo: string;
+          outboundStatus: CardOutboundStatus;
+          attemptNo: number;
+          cardMasked: string;
+        }
+      | undefined;
+
+    if (existingOutbound) {
+      return {
+        success: true,
+        accepted: false,
+        queued: false,
+        idempotent: true,
+        jobStatus: 'success' as const,
+        outboundRecord: existingOutbound,
+      };
+    }
+
+    const jobId = this.ensureCardDeliveryJobRecord(orderId, context.cardTypeId, 'auto_fulfill', now);
+    const existingJob = this.db
+      .prepare(
+        `
+          SELECT job_status AS jobStatus
+          FROM card_delivery_jobs
+          WHERE id = ?
+        `,
+      )
+      .get(jobId) as { jobStatus: CardDeliveryJobStatus } | undefined;
+
+    this.db
+      .prepare(
+        `
+          UPDATE card_delivery_jobs
+          SET
+            job_status = 'pending',
+            error_message = NULL,
+            updated_at = @updatedAt
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: jobId,
+        updatedAt: now,
+      });
+
+    const queuedTask = this.enqueueFulfillmentQueueTask({
+      taskKey: `card_delivery_job_run:${jobId}`,
+      taskType: 'card_delivery_job_run',
+      refId: jobId,
+      maxRetry: 1,
+      now,
+    });
+
+    this.insertWorkspaceLog(
+      featureKey,
+      'delivery_queued',
+      `${context.orderNo} 已加入卡密履约队列`,
+      `任务 #${jobId} 将由后台 Worker 执行。`,
+    );
+    this.touchWorkspace(featureKey, now);
+    this.touchWorkspace('card-records', now);
+
+    return {
+      success: true,
+      accepted: queuedTask.accepted,
+      queued: queuedTask.queued,
+      idempotent: queuedTask.idempotent || existingJob?.jobStatus === 'pending',
+      jobId,
+      queueTaskId: queuedTask.taskId,
+      jobStatus: 'pending' as const,
+    };
+  }
+
+  queueCardDeliveryJob(featureKey: string, jobId: number) {
+    if (featureKey !== 'card-delivery') {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            cdj.id,
+            cdj.order_id AS orderId,
+            cdj.job_type AS jobType,
+            cdj.job_status AS jobStatus,
+            cdj.related_outbound_record_id AS relatedOutboundRecordId,
+            o.order_no AS orderNo
+          FROM card_delivery_jobs cdj
+          INNER JOIN orders o ON o.id = cdj.order_id
+          WHERE cdj.id = ?
+        `,
+      )
+      .get(jobId) as
+      | {
+          id: number;
+          orderId: number;
+          jobType: 'auto_fulfill' | 'manual_resend';
+          jobStatus: CardDeliveryJobStatus;
+          relatedOutboundRecordId: number | null;
+          orderNo: string;
+        }
+      | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    if (row.jobType === 'auto_fulfill') {
+      return this.queueCardFulfillment(featureKey, row.orderId);
+    }
+
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    this.db
+      .prepare(
+        `
+          UPDATE card_delivery_jobs
+          SET
+            job_status = 'pending',
+            error_message = NULL,
+            updated_at = @updatedAt
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: row.id,
+        updatedAt: now,
+      });
+
+    const queuedTask = this.enqueueFulfillmentQueueTask({
+      taskKey: `card_delivery_job_run:${row.id}`,
+      taskType: 'card_delivery_job_run',
+      refId: row.id,
+      maxRetry: 1,
+      now,
+    });
+
+    this.insertWorkspaceLog(
+      featureKey,
+      'delivery_resend_queued',
+      `${row.orderNo} 已加入卡密补发队列`,
+      `补发任务 #${row.id} 将由后台 Worker 执行。`,
+    );
+    this.touchWorkspace(featureKey, now);
+    this.touchWorkspace('card-records', now);
+
+    return {
+      success: true,
+      accepted: queuedTask.accepted,
+      queued: queuedTask.queued,
+      idempotent: queuedTask.idempotent || row.jobStatus === 'pending',
+      jobId: row.id,
+      queueTaskId: queuedTask.taskId,
+      jobStatus: 'pending' as const,
+      relatedOutboundRecordId: row.relatedOutboundRecordId,
+    };
+  }
+
+  listPendingCardDeliveryJobIds(limit = 20) {
+    return this.db
+      .prepare(
+        `
+          SELECT id
+          FROM card_delivery_jobs
+          WHERE job_status = 'pending'
+          ORDER BY updated_at ASC, id ASC
+          LIMIT ?
+        `,
+      )
+      .all(Math.max(limit, 1))
+      .map((row) => Number((row as { id: number }).id));
+  }
+
   runCardDeliveryJob(featureKey: string, jobId: number) {
     if (featureKey !== 'card-delivery') {
       return null;
@@ -19864,18 +22038,60 @@ export class StatisticsDatabase {
     const row = this.db
       .prepare(
         `
-          SELECT id, order_id AS orderId
+          SELECT
+            id,
+            order_id AS orderId,
+            job_type AS jobType,
+            related_outbound_record_id AS relatedOutboundRecordId
           FROM card_delivery_jobs
           WHERE id = ?
         `,
       )
-      .get(jobId) as { id: number; orderId: number } | undefined;
+      .get(jobId) as
+      | {
+          id: number;
+          orderId: number;
+          jobType: 'auto_fulfill' | 'manual_resend';
+          relatedOutboundRecordId: number | null;
+        }
+      | undefined;
 
     if (!row) {
       return null;
     }
 
     const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+
+    if (row.jobType === 'manual_resend') {
+      if (!row.relatedOutboundRecordId) {
+        const errorMessage = '补发任务缺少原始出库记录。';
+        this.markCardDeliveryJobFailed(row.id, errorMessage, now);
+        return {
+          success: false,
+          errorMessage,
+        };
+      }
+
+      const resendResult = this.resendCardOutbound('card-records', row.relatedOutboundRecordId);
+      if (!resendResult) {
+        const errorMessage = '原始出库记录不存在或当前状态不可补发。';
+        this.markCardDeliveryJobFailed(row.id, errorMessage, now);
+        return {
+          success: false,
+          errorMessage,
+        };
+      }
+
+      this.markCardDeliveryJobSuccess(row.id, resendResult.resendRecord.id, now);
+      this.touchWorkspace(featureKey, now);
+
+      return {
+        success: true,
+        idempotent: false,
+        resendRecord: resendResult.resendRecord,
+      };
+    }
+
     const result = this.performCardOrderFulfillment(row.orderId, row.id, now);
     if (!result) {
       return null;
@@ -19891,6 +22107,102 @@ export class StatisticsDatabase {
     this.touchWorkspace('card-records', now);
 
     return result;
+  }
+
+  queueCardOutboundResend(featureKey: string, outboundRecordId: number) {
+    if (featureKey !== 'card-records') {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            cor.id,
+            cor.order_id AS orderId,
+            cor.card_type_id AS cardTypeId,
+            cor.outbound_no AS outboundNo,
+            cor.outbound_status AS outboundStatus,
+            o.order_no AS orderNo
+          FROM card_outbound_records cor
+          INNER JOIN orders o ON o.id = cor.order_id
+          WHERE cor.id = ?
+        `,
+      )
+      .get(outboundRecordId) as
+      | {
+          id: number;
+          orderId: number;
+          cardTypeId: number;
+          outboundNo: string;
+          outboundStatus: CardOutboundStatus;
+          orderNo: string;
+        }
+      | undefined;
+
+    if (!row || ['recycled', 'revoked'].includes(row.outboundStatus)) {
+      return null;
+    }
+
+    const now = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const result = this.db
+      .prepare(
+        `
+          INSERT INTO card_delivery_jobs (
+            order_id,
+            card_type_id,
+            job_type,
+            job_status,
+            attempt_count,
+            related_outbound_record_id,
+            created_at,
+            updated_at
+          ) VALUES (
+            @orderId,
+            @cardTypeId,
+            'manual_resend',
+            'pending',
+            0,
+            @relatedOutboundRecordId,
+            @createdAt,
+            @updatedAt
+          )
+        `,
+      )
+      .run({
+        orderId: row.orderId,
+        cardTypeId: row.cardTypeId,
+        relatedOutboundRecordId: row.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const jobId = Number(result.lastInsertRowid);
+    const queuedTask = this.enqueueFulfillmentQueueTask({
+      taskKey: `card_delivery_job_run:${jobId}`,
+      taskType: 'card_delivery_job_run',
+      refId: jobId,
+      maxRetry: 1,
+      now,
+    });
+    this.insertWorkspaceLog(
+      featureKey,
+      'delivery_resend_queued',
+      `${row.orderNo} 已加入卡密补发队列`,
+      `补发任务 #${jobId} 将基于出库单 ${row.outboundNo} 由后台 Worker 执行。`,
+    );
+    this.touchWorkspace(featureKey, now);
+    this.touchWorkspace('card-delivery', now);
+
+    return {
+      success: true,
+      accepted: queuedTask.accepted,
+      queued: queuedTask.queued,
+      queueTaskId: queuedTask.taskId,
+      jobId,
+      relatedOutboundRecordId: row.id,
+      outboundNo: row.outboundNo,
+    };
   }
 
   resendCardOutbound(featureKey: string, outboundRecordId: number) {
@@ -23796,6 +26108,91 @@ export class StatisticsDatabase {
         updated_at TEXT NOT NULL,
         FOREIGN KEY(updated_by) REFERENCES users(id)
       );
+
+      CREATE TABLE IF NOT EXISTS open_platform_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        webhook_base_url TEXT NOT NULL DEFAULT '',
+        notify_email TEXT NOT NULL DEFAULT '',
+        published_version TEXT NOT NULL DEFAULT 'v1',
+        default_rate_limit_per_minute INTEGER NOT NULL DEFAULT 120,
+        signature_ttl_seconds INTEGER NOT NULL DEFAULT 300,
+        whitelist_enforced INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_by INTEGER,
+        FOREIGN KEY(updated_by) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS open_platform_apps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        app_key TEXT NOT NULL UNIQUE,
+        app_name TEXT NOT NULL,
+        owner_name TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT '',
+        callback_url TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        scopes_text TEXT NOT NULL,
+        secret_setting_key TEXT NOT NULL UNIQUE,
+        rate_limit_per_minute INTEGER NOT NULL DEFAULT 120,
+        last_called_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by INTEGER,
+        FOREIGN KEY(updated_by) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS open_platform_docs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_key TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL,
+        http_method TEXT NOT NULL,
+        route_path TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'published',
+        scope_text TEXT NOT NULL,
+        version_tag TEXT NOT NULL DEFAULT 'v1',
+        description TEXT NOT NULL,
+        sample_payload TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS open_platform_whitelist_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_type TEXT NOT NULL,
+        rule_value TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        last_hit_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by INTEGER,
+        FOREIGN KEY(updated_by) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS open_platform_call_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        app_id INTEGER,
+        app_key TEXT NOT NULL,
+        tenant_key TEXT,
+        trace_id TEXT NOT NULL,
+        http_method TEXT NOT NULL,
+        route_path TEXT NOT NULL,
+        request_ip TEXT,
+        status_code INTEGER NOT NULL,
+        call_status TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        detail TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(app_id) REFERENCES open_platform_apps(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_open_platform_apps_status ON open_platform_apps(status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_open_platform_docs_category ON open_platform_docs(category, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_open_platform_whitelist_enabled ON open_platform_whitelist_rules(enabled, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_open_platform_calls_created_at ON open_platform_call_logs(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_open_platform_calls_app_status ON open_platform_call_logs(app_key, call_status, created_at DESC);
 
       CREATE TABLE IF NOT EXISTS stores (
         id INTEGER PRIMARY KEY,

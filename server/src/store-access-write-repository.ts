@@ -699,6 +699,12 @@ export class StoreAccessWriteRepository {
     authType: number;
     storeId?: number | null;
     createdByUserId?: number | null;
+    seed?: {
+      sessionId: string;
+      createdAt: string;
+      expiresAt: string;
+      providerState?: string | null;
+    };
   }) {
     let targetStore:
       | {
@@ -753,15 +759,19 @@ export class StoreAccessWriteRepository {
         .run({ storeId: input.storeId });
     }
 
-    const sessionId = randomUUID();
-    const createdAt = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
-    const expiresAt = format(new Date(Date.now() + 15 * 60 * 1000), 'yyyy-MM-dd HH:mm:ss');
+    const sessionId = input.seed?.sessionId ?? randomUUID();
+    const createdAt =
+      input.seed?.createdAt ?? format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const expiresAt =
+      input.seed?.expiresAt ??
+      format(new Date(Date.now() + 15 * 60 * 1000), 'yyyy-MM-dd HH:mm:ss');
     const signingSecret = this.getStoreAuthCallbackSigningSecret();
     const providerPlan = resolveStoreAuthProviderPlan(appConfig, {
       platform: input.platform,
       sessionId,
       reauthorize: Boolean(input.storeId),
       signingSecret,
+      providerState: input.seed?.providerState ?? null,
     });
 
     this.db

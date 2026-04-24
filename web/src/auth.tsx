@@ -2,14 +2,37 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import type { LoginResponse } from './api';
+import type {
+  AuthProfileResponse,
+  AuthScope,
+  AuthUser,
+  LoginResponse,
+  PlatformMfaChallengeResponse,
+  PlatformSessionResponse,
+  PlatformAuthUser,
+  PrivateSessionResponse,
+  TenantAccessItem,
+  TenantMembership,
+  TenantSessionResponse,
+  TenantSummary,
+} from './api';
 import { apiRequest } from './api';
 
-interface AuthContextValue {
-  loading: boolean;
+interface AuthState {
   expiresAt: string | null;
-  user: LoginResponse['user'] | null;
-  login: (username: string, password: string) => Promise<void>;
+  scope: AuthScope | null;
+  user: AuthUser | null;
+  platformUser: PlatformAuthUser | null;
+  tenant: TenantSummary | null;
+  membership: TenantMembership | null;
+  memberships: TenantAccessItem[];
+}
+
+interface AuthContextValue extends AuthState {
+  loading: boolean;
+  login: (username: string, password: string) => Promise<LoginResponse>;
+  selectTenant: (tenantId: number) => Promise<TenantSessionResponse>;
+  refreshProfile: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -19,6 +42,16 @@ const LEGACY_STORAGE_KEYS = [
   'goofish-statistics-expires-at',
 ] as const;
 const SESSION_HINT_STORAGE_KEY = 'goofish-statistics-session-hint';
+
+const emptyAuthState: AuthState = {
+  expiresAt: null,
+  scope: null,
+  user: null,
+  platformUser: null,
+  tenant: null,
+  membership: null,
+  memberships: [],
+};
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -42,31 +75,113 @@ function hasSessionHint() {
   return localStorage.getItem(SESSION_HINT_STORAGE_KEY) === '1';
 }
 
+function mapProfileToState(profile: AuthProfileResponse, expiresAt: string | null): AuthState {
+  if (profile.scope === 'private') {
+    return {
+      expiresAt,
+      scope: 'private',
+      user: profile.user,
+      platformUser: null,
+      tenant: null,
+      membership: null,
+      memberships: [],
+    };
+  }
+
+  if (profile.scope === 'platform') {
+    return {
+      expiresAt,
+      scope: 'platform',
+      user: null,
+      platformUser: profile.user,
+      tenant: null,
+      membership: null,
+      memberships: profile.memberships,
+    };
+  }
+
+  return {
+    expiresAt,
+    scope: 'tenant',
+    user: profile.user,
+    platformUser: profile.platformUser,
+    tenant: profile.tenant,
+    membership: profile.membership,
+    memberships: profile.memberships,
+  };
+}
+
+type SessionStatePayload = Exclude<LoginResponse, PlatformMfaChallengeResponse>;
+
+function mapSessionToState(payload: SessionStatePayload): AuthState {
+  if (payload.scope === 'private') {
+    return {
+      expiresAt: payload.expiresAt,
+      scope: 'private',
+      user: payload.user,
+      platformUser: null,
+      tenant: null,
+      membership: null,
+      memberships: [],
+    };
+  }
+
+  if (payload.scope === 'platform') {
+    return {
+      expiresAt: payload.expiresAt,
+      scope: 'platform',
+      user: null,
+      platformUser: payload.user,
+      tenant: null,
+      membership: null,
+      memberships: payload.memberships,
+    };
+  }
+
+  return {
+    expiresAt: payload.expiresAt,
+    scope: 'tenant',
+    user: payload.user,
+    platformUser: null,
+    tenant: payload.tenant,
+    membership: payload.membership,
+    memberships: [],
+  };
+}
+
+type RefreshSessionResponse = PrivateSessionResponse | PlatformSessionResponse | TenantSessionResponse;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const [expiresAt, setExpiresAt] = useState<string | null>(null);
-  const [user, setUser] = useState<LoginResponse['user'] | null>(null);
+  const [authState, setAuthState] = useState<AuthState>(emptyAuthState);
 
-  const persistSession = useCallback((payload: LoginResponse) => {
-    setExpiresAt(payload.expiresAt);
-    setUser(payload.user);
+  const persistSession = useCallback((state: AuthState) => {
+    setAuthState(state);
     setSessionHint(true);
     clearLegacyStoredAuth();
   }, []);
 
   const clearSession = useCallback(() => {
-    setExpiresAt(null);
-    setUser(null);
+    setAuthState(emptyAuthState);
     setSessionHint(false);
     clearLegacyStoredAuth();
   }, []);
 
+  const refreshProfile = useCallback(async () => {
+    const profile = await apiRequest<AuthProfileResponse>('/api/auth/profile', undefined);
+    setAuthState((current) => mapProfileToState(profile, current.expiresAt));
+  }, []);
+
   const refreshSession = useCallback(async () => {
-    const payload = await apiRequest<LoginResponse>('/api/auth/refresh', {
+    const payload = await apiRequest<RefreshSessionResponse>('/api/auth/refresh', {
       method: 'POST',
       body: '{}',
     });
-    persistSession(payload);
+    persistSession(mapSessionToState(payload));
+    if (payload.scope === 'platform' || payload.scope === 'tenant') {
+      const profile = await apiRequest<AuthProfileResponse>('/api/auth/profile', undefined);
+      persistSession(mapProfileToState(profile, payload.expiresAt));
+    }
     return payload;
   }, [persistSession]);
 
@@ -76,7 +191,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
-      persistSession(payload);
+      if (payload.scope !== 'platform_mfa') {
+        persistSession(mapSessionToState(payload));
+      }
+      return payload;
+    },
+    [persistSession],
+  );
+
+  const selectTenant = useCallback(
+    async (tenantId: number) => {
+      const payload = await apiRequest<TenantSessionResponse>('/api/auth/select-tenant', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId }),
+      });
+      persistSession(mapSessionToState(payload));
+      const profile = await apiRequest<AuthProfileResponse>('/api/auth/profile', undefined);
+      persistSession(mapProfileToState(profile, payload.expiresAt));
+      return payload;
     },
     [persistSession],
   );
@@ -124,11 +256,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession, refreshSession]);
 
   useEffect(() => {
-    if (!user || !expiresAt) {
+    if (!authState.scope || !authState.expiresAt) {
       return;
     }
 
-    const refreshAt = new Date(expiresAt).getTime() - Date.now() - 5 * 60 * 1000;
+    const refreshAt = new Date(authState.expiresAt).getTime() - Date.now() - 5 * 60 * 1000;
     const timeout = window.setTimeout(
       async () => {
         try {
@@ -143,17 +275,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [clearSession, expiresAt, refreshSession, user]);
+  }, [authState.expiresAt, authState.scope, clearSession, refreshSession]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       loading,
-      expiresAt,
-      user,
+      ...authState,
       login,
+      selectTenant,
+      refreshProfile,
       logout,
     }),
-    [expiresAt, loading, login, logout, user],
+    [authState, loading, login, logout, refreshProfile, selectTenant],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,5 +1,8 @@
 # 企业级改造路线图
 
+- 对标闲管家式商家运营 SaaS 的版本路线图见：[goofish-benchmark-roadmap.md](/D:/codex/goofish-sale-statistics/docs/goofish-benchmark-roadmap.md)。
+- `v2.0` 现状与目标架构蓝图见：[v2-architecture-blueprint.md](/D:/codex/goofish-sale-statistics/docs/v2-architecture-blueprint.md)。
+
 ## 使用规则
 
 - 每次只推进一个“当前项”。

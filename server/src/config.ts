@@ -2,7 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { BootstrapAdminConfig, RuntimeMode, StoreAuthIntegrationMode } from './types.js';
+import type { DatabaseProviderRuntimeSummary } from './database-provider.js';
+import type {
+  BackgroundJobsMode,
+  BootstrapAdminConfig,
+  DatabaseEngine,
+  DeploymentMode,
+  QueueBackend,
+  RuntimeMode,
+  StoreAuthIntegrationMode,
+} from './types.js';
 
 type EnvProfile = 'development' | 'staging' | 'production';
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -14,8 +23,14 @@ const loadedEnvFiles: string[] = [];
 const loadedEnvKeys = new Set<string>();
 
 export interface ResolvedAppConfig {
+  deploymentMode: DeploymentMode;
   runtimeMode: RuntimeMode;
   envProfile: EnvProfile;
+  backgroundJobsMode: BackgroundJobsMode;
+  queueBackend: QueueBackend;
+  businessDatabaseEngine: DatabaseEngine;
+  tenantBusinessDatabaseEngine: DatabaseEngine;
+  controlPlaneDatabaseEngine: DatabaseEngine;
   port: number;
   host: string;
   trustProxy: boolean;
@@ -32,6 +47,13 @@ export interface ResolvedAppConfig {
   privilegedWriteWindowMinutes: number;
   dataRoot: string;
   dbPath: string;
+  businessPostgresUrl: string | null;
+  controlPlaneDbPath: string;
+  controlPlanePostgresUrl: string | null;
+  tenantDatabaseRoot: string;
+  tenantBusinessPostgresUrlTemplate: string | null;
+  redisUrl: string | null;
+  redisPrefix: string;
   logDir: string;
   backupDir: string;
   uploadDir: string;
@@ -52,6 +74,16 @@ export interface ResolvedAppConfig {
 export interface RuntimeConfigIssue {
   field: string;
   message: string;
+}
+
+export interface EnterpriseLaunchIssue extends RuntimeConfigIssue {}
+
+function hasRuntimeGap(runtime: {
+  runtimeEngine: 'sqlite' | 'hybrid' | 'postgres';
+  runtimeReady: boolean;
+  runtimeBlockedReason: string | null;
+}) {
+  return runtime.runtimeEngine !== 'postgres' || !runtime.runtimeReady || Boolean(runtime.runtimeBlockedReason);
 }
 
 function parseBoolean(value: string | undefined) {
@@ -91,11 +123,43 @@ function resolveRuntimeMode(value: string | undefined): RuntimeMode {
   return 'prod';
 }
 
+function resolveDeploymentMode(value: string | undefined): DeploymentMode {
+  if (value === 'private' || value === 'saas') {
+    return value;
+  }
+  return 'private';
+}
+
 function resolveStoreAuthMode(value: string | undefined): StoreAuthIntegrationMode {
   if (value === 'simulated' || value === 'xianyu_browser_oauth' || value === 'xianyu_web_session') {
     return value;
   }
   return 'simulated';
+}
+
+function resolveBackgroundJobsMode(
+  value: string | undefined,
+  deploymentMode: DeploymentMode,
+): BackgroundJobsMode {
+  if (value === 'embedded' || value === 'worker' || value === 'disabled') {
+    return value;
+  }
+
+  return deploymentMode === 'private' ? 'embedded' : 'disabled';
+}
+
+function resolveQueueBackend(value: string | undefined): QueueBackend {
+  if (value === 'sqlite' || value === 'redis') {
+    return value;
+  }
+  return 'sqlite';
+}
+
+function resolveDatabaseEngine(value: string | undefined): DatabaseEngine {
+  if (value === 'sqlite' || value === 'postgres') {
+    return value;
+  }
+  return 'sqlite';
 }
 
 function resolveEnvProfile(runtimeMode: RuntimeMode): EnvProfile {
@@ -191,10 +255,26 @@ function resolveBootstrapAdmin(env: NodeJS.ProcessEnv) {
 }
 
 function buildAppConfig(env: NodeJS.ProcessEnv): ResolvedAppConfig {
+  const deploymentMode = resolveDeploymentMode(env.APP_DEPLOYMENT_MODE);
   const runtimeMode = resolveRuntimeMode(env.APP_RUNTIME_MODE);
   const envProfile = resolveEnvProfile(runtimeMode);
+  const backgroundJobsMode = resolveBackgroundJobsMode(env.APP_BACKGROUND_JOBS_MODE, deploymentMode);
+  const queueBackend = resolveQueueBackend(env.APP_QUEUE_BACKEND);
+  const businessDatabaseEngine = resolveDatabaseEngine(env.APP_BUSINESS_DB_ENGINE);
+  const tenantBusinessDatabaseEngine = resolveDatabaseEngine(
+    env.APP_TENANT_BUSINESS_DB_ENGINE ?? env.APP_BUSINESS_DB_ENGINE,
+  );
+  const controlPlaneDatabaseEngine = resolveDatabaseEngine(env.APP_CONTROL_PLANE_DB_ENGINE);
   const dataRoot = resolveAppPath(env.APP_DATA_ROOT, path.resolve(currentDir, '../data'));
   const dbPath = resolveAppPath(env.APP_DB_PATH ?? env.DB_PATH, path.resolve(dataRoot, 'app.db'));
+  const controlPlaneDbPath = resolveAppPath(
+    env.APP_CONTROL_PLANE_DB_PATH,
+    path.resolve(dataRoot, 'control-plane.db'),
+  );
+  const tenantDatabaseRoot = resolveAppPath(
+    env.APP_TENANT_DB_ROOT,
+    path.resolve(dataRoot, 'tenants'),
+  );
   const logDir = resolveAppPath(env.APP_LOG_ROOT, path.resolve(dataRoot, 'logs'));
   const backupDir = resolveAppPath(env.APP_BACKUP_ROOT, path.resolve(dataRoot, 'backups'));
   const uploadDir = resolveAppPath(env.APP_UPLOAD_ROOT, path.resolve(dataRoot, 'uploads'));
@@ -202,8 +282,14 @@ function buildAppConfig(env: NodeJS.ProcessEnv): ResolvedAppConfig {
   const storeAuthMode = resolveStoreAuthMode(env.APP_STORE_AUTH_MODE);
 
   return {
+    deploymentMode,
     runtimeMode,
     envProfile,
+    backgroundJobsMode,
+    queueBackend,
+    businessDatabaseEngine,
+    tenantBusinessDatabaseEngine,
+    controlPlaneDatabaseEngine,
     port: Number(env.PORT ?? 4300),
     host: env.HOST?.trim() || '0.0.0.0',
     trustProxy: parseBoolean(env.APP_TRUST_PROXY) ?? runtimeMode !== 'demo',
@@ -226,6 +312,16 @@ function buildAppConfig(env: NodeJS.ProcessEnv): ResolvedAppConfig {
     ),
     dataRoot,
     dbPath,
+    businessPostgresUrl:
+      env.APP_BUSINESS_POSTGRES_URL?.trim() || env.APP_POSTGRES_URL?.trim() || null,
+    controlPlaneDbPath,
+    controlPlanePostgresUrl:
+      env.APP_CONTROL_PLANE_POSTGRES_URL?.trim() || env.DATABASE_URL?.trim() || null,
+    tenantDatabaseRoot,
+    tenantBusinessPostgresUrlTemplate:
+      env.APP_TENANT_BUSINESS_POSTGRES_URL_TEMPLATE?.trim() || null,
+    redisUrl: env.APP_REDIS_URL?.trim() || env.REDIS_URL?.trim() || null,
+    redisPrefix: env.APP_REDIS_PREFIX?.trim() || 'sale-compass',
     logDir,
     backupDir,
     uploadDir,
@@ -331,12 +427,15 @@ export function getRuntimeConfigIssues(config: ResolvedAppConfig): RuntimeConfig
   const issues: RuntimeConfigIssue[] = [];
   const strictMode = config.runtimeMode !== 'demo';
   const normalizedDbPath = path.resolve(config.dbPath);
+  const normalizedControlPlaneDbPath = path.resolve(config.controlPlaneDbPath);
   const directoryEntries = [
     ['APP_DATA_ROOT', path.resolve(config.dataRoot)],
     ['APP_LOG_ROOT', path.resolve(config.logDir)],
     ['APP_BACKUP_ROOT', path.resolve(config.backupDir)],
     ['APP_UPLOAD_ROOT', path.resolve(config.uploadDir)],
+    ['APP_TENANT_DB_ROOT', path.resolve(config.tenantDatabaseRoot)],
   ] as const;
+  const controlPlanePathEnabled = config.controlPlaneDatabaseEngine === 'sqlite';
   const duplicatePathMap = new Map<string, string[]>();
 
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
@@ -376,6 +475,66 @@ export function getRuntimeConfigIssues(config: ResolvedAppConfig): RuntimeConfig
     issues.push({
       field: 'APP_DB_PATH',
       message: '数据库文件路径不能与数据、日志、备份或上传目录相同。',
+    });
+  }
+
+  if (
+    controlPlanePathEnabled &&
+    directoryEntries.some(([, targetPath]) => targetPath === normalizedControlPlaneDbPath)
+  ) {
+    issues.push({
+      field: 'APP_CONTROL_PLANE_DB_PATH',
+      message: '控制面数据库文件路径不能与数据、日志、备份、上传或租户数据库目录相同。',
+    });
+  }
+
+  if (
+    config.deploymentMode === 'saas' &&
+    controlPlanePathEnabled &&
+    normalizedDbPath === normalizedControlPlaneDbPath
+  ) {
+    issues.push({
+      field: 'APP_DB_PATH, APP_CONTROL_PLANE_DB_PATH',
+      message: 'SaaS 模式下业务数据库与控制面数据库必须分离。',
+    });
+  }
+
+  if (config.deploymentMode === 'saas' && config.controlPlaneDatabaseEngine === 'postgres' && !config.controlPlanePostgresUrl) {
+    issues.push({
+      field: 'APP_CONTROL_PLANE_POSTGRES_URL',
+      message: 'SaaS 模式启用 PostgreSQL 控制面时必须配置 APP_CONTROL_PLANE_POSTGRES_URL。',
+    });
+  }
+
+  if (config.businessDatabaseEngine === 'postgres' && !config.businessPostgresUrl) {
+    issues.push({
+      field: 'APP_BUSINESS_POSTGRES_URL',
+      message: '启用 PostgreSQL 业务库时必须配置 APP_BUSINESS_POSTGRES_URL。',
+    });
+  }
+
+  if (
+    config.deploymentMode === 'saas' &&
+    config.tenantBusinessDatabaseEngine === 'postgres' &&
+    !config.tenantBusinessPostgresUrlTemplate
+  ) {
+    issues.push({
+      field: 'APP_TENANT_BUSINESS_POSTGRES_URL_TEMPLATE',
+      message: 'SaaS 租户业务库启用 PostgreSQL 时必须配置 APP_TENANT_BUSINESS_POSTGRES_URL_TEMPLATE。',
+    });
+  }
+
+  if (config.queueBackend === 'redis' && !config.redisUrl) {
+    issues.push({
+      field: 'APP_REDIS_URL',
+      message: '启用 Redis 队列时必须配置 APP_REDIS_URL。',
+    });
+  }
+
+  if (!config.redisPrefix.trim()) {
+    issues.push({
+      field: 'APP_REDIS_PREFIX',
+      message: 'Redis 队列前缀不能为空。',
     });
   }
 
@@ -503,13 +662,18 @@ export function getRuntimeStartupIssues(
     }
   }
 
-  const writableTargets = [
+  const writableTargets: Array<[string, string]> = [
     ['APP_DATA_ROOT', config.dataRoot],
     ['APP_LOG_ROOT', config.logDir],
     ['APP_BACKUP_ROOT', config.backupDir],
     ['APP_UPLOAD_ROOT', config.uploadDir],
     ['APP_DB_PATH', path.dirname(config.dbPath)],
-  ] as const;
+    ['APP_TENANT_DB_ROOT', config.tenantDatabaseRoot],
+  ];
+
+  if (config.controlPlaneDatabaseEngine === 'sqlite') {
+    writableTargets.push(['APP_CONTROL_PLANE_DB_PATH', path.dirname(config.controlPlaneDbPath)]);
+  }
 
   writableTargets.forEach(([field, targetPath]) => {
     if (!canWriteDirectory(targetPath)) {
@@ -519,6 +683,90 @@ export function getRuntimeStartupIssues(
       });
     }
   });
+
+  return issues;
+}
+
+export function getEnterpriseLaunchIssues(
+  config: ResolvedAppConfig,
+  runtimeSummary?: DatabaseProviderRuntimeSummary,
+): EnterpriseLaunchIssue[] {
+  const issues: EnterpriseLaunchIssue[] = [];
+  const productionMode = config.runtimeMode === 'prod';
+
+  if (!productionMode) {
+    return issues;
+  }
+
+  if (!config.metricsEnabled) {
+    issues.push({
+      field: 'APP_METRICS_ENABLED',
+      message: '企业级正式环境必须启用 Prometheus 指标。',
+    });
+  }
+
+  if (!config.metricsToken?.trim()) {
+    issues.push({
+      field: 'APP_METRICS_TOKEN',
+      message: '企业级正式环境必须为指标接口配置独立访问令牌。',
+    });
+  }
+
+  if (config.storeAuthMode === 'simulated') {
+    issues.push({
+      field: 'APP_STORE_AUTH_MODE',
+      message: '企业级正式环境不能继续使用 simulated 授权模式。',
+    });
+  }
+
+  if (config.deploymentMode === 'saas') {
+    if (config.controlPlaneDatabaseEngine !== 'postgres') {
+      issues.push({
+        field: 'APP_CONTROL_PLANE_DB_ENGINE',
+        message: 'SaaS 正式环境必须使用 PostgreSQL 作为控制面数据库。',
+      });
+    }
+
+    if (config.queueBackend !== 'redis') {
+      issues.push({
+        field: 'APP_QUEUE_BACKEND',
+        message: 'SaaS 正式环境必须使用 Redis 队列后端。',
+      });
+    }
+
+    if (config.backgroundJobsMode === 'embedded') {
+      issues.push({
+        field: 'APP_BACKGROUND_JOBS_MODE',
+        message: 'SaaS 正式环境禁止在 API 进程内嵌后台任务，请改为 worker 或 disabled。',
+      });
+    }
+
+    if (config.tenantBusinessDatabaseEngine !== 'postgres') {
+      issues.push({
+        field: 'APP_TENANT_BUSINESS_DB_ENGINE',
+        message: 'SaaS 正式环境的租户业务库目标引擎必须切换为 PostgreSQL。',
+      });
+    } else if (!runtimeSummary || hasRuntimeGap(runtimeSummary.tenantDatabase)) {
+      issues.push({
+        field: 'business_database_runtime',
+        message:
+          runtimeSummary?.tenantDatabase.runtimeBlockedReason ??
+          '当前版本尚未完成租户业务库 PostgreSQL 运行时切换，仍不满足 SaaS v2.0 正式版上线门槛。',
+      });
+    }
+  } else if (config.businessDatabaseEngine !== 'postgres') {
+    issues.push({
+      field: 'APP_BUSINESS_DB_ENGINE',
+      message: '正式私有化环境的业务库目标引擎应切换为 PostgreSQL。',
+    });
+  } else if (!runtimeSummary || hasRuntimeGap(runtimeSummary.privateDatabase)) {
+    issues.push({
+      field: 'business_database_runtime',
+      message:
+        runtimeSummary?.privateDatabase.runtimeBlockedReason ??
+        '当前版本尚未完成业务库 PostgreSQL 运行时切换，仍不满足正式版上线门槛。',
+    });
+  }
 
   return issues;
 }
@@ -552,10 +800,42 @@ export function assertRuntimeStartupReadiness(
   );
 }
 
-export function getRuntimeConfigSummary(config: ResolvedAppConfig) {
+export function assertEnterpriseLaunchReadiness(
+  config: ResolvedAppConfig,
+  runtimeSummary?: DatabaseProviderRuntimeSummary,
+) {
+  const issues = getEnterpriseLaunchIssues(config, runtimeSummary);
+  if (issues.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    ['企业级正式上线门槛未通过，请先修复以下问题：', ...issues.map((issue) => `- ${issue.field}: ${issue.message}`)].join(
+      '\n',
+    ),
+  );
+}
+
+export function getRuntimeConfigSummary(
+  config: ResolvedAppConfig,
+  runtimeSummary?: DatabaseProviderRuntimeSummary,
+) {
+  const enterpriseLaunchIssues = getEnterpriseLaunchIssues(config, runtimeSummary);
   return {
+    deploymentMode: config.deploymentMode,
     strictMode: config.runtimeMode !== 'demo',
     envProfile: config.envProfile,
+    backgroundJobsMode: config.backgroundJobsMode,
+    queueBackend: config.queueBackend,
+    businessDatabaseEngine: config.businessDatabaseEngine,
+    tenantBusinessDatabaseEngine: config.tenantBusinessDatabaseEngine,
+    controlPlaneDatabaseEngine: config.controlPlaneDatabaseEngine,
+    businessPostgresConfigured: Boolean(config.businessPostgresUrl),
+    controlPlanePostgresConfigured: Boolean(config.controlPlanePostgresUrl),
+    tenantBusinessPostgresTemplateConfigured: Boolean(config.tenantBusinessPostgresUrlTemplate),
+    redisConfigured: Boolean(config.redisUrl),
+    enterpriseLaunchReady: enterpriseLaunchIssues.length === 0,
+    enterpriseLaunchIssueCount: enterpriseLaunchIssues.length,
     envFileLoaded: config.envFileLoaded,
     envFilePath: config.envFilePath,
     envFilesLoaded: config.envFilesLoaded,
@@ -571,15 +851,38 @@ export function getRuntimeConfigSummary(config: ResolvedAppConfig) {
       Boolean(config.xianyuAppKey && config.xianyuAppSecret && config.xianyuCallbackBaseUrl),
     dataRoot: config.dataRoot,
     dbPath: config.dbPath,
+    businessPostgresUrl: config.businessPostgresUrl,
+    controlPlaneDbPath: config.controlPlaneDbPath,
+    controlPlanePostgresUrl: config.controlPlanePostgresUrl,
+    tenantDatabaseRoot: config.tenantDatabaseRoot,
+    tenantBusinessPostgresUrlTemplate: config.tenantBusinessPostgresUrlTemplate,
+    redisPrefix: config.redisPrefix,
+    databaseRuntime: runtimeSummary
+      ? {
+          privateDatabase: runtimeSummary.privateDatabase,
+          tenantDatabase: runtimeSummary.tenantDatabase,
+        }
+      : null,
   };
 }
 
 export function ensureRuntimeDirectories(config: ResolvedAppConfig = appConfig) {
-  [config.dataRoot, path.dirname(config.dbPath), config.logDir, config.backupDir, config.uploadDir].forEach(
-    (targetPath) => {
-      fs.mkdirSync(targetPath, { recursive: true });
-    },
-  );
+  const targetDirectories = [
+    config.dataRoot,
+    path.dirname(config.dbPath),
+    config.tenantDatabaseRoot,
+    config.logDir,
+    config.backupDir,
+    config.uploadDir,
+  ];
+
+  if (config.controlPlaneDatabaseEngine === 'sqlite') {
+    targetDirectories.push(path.dirname(config.controlPlaneDbPath));
+  }
+
+  targetDirectories.forEach((targetPath) => {
+    fs.mkdirSync(targetPath, { recursive: true });
+  });
 }
 
 export const appConfig = buildAppConfig(process.env);

@@ -198,7 +198,7 @@ export function DashboardPage() {
           : '近 90 天';
 
   return (
-    <div className="functional-dashboard">
+    <div className="functional-dashboard" data-testid="functional-dashboard">
       {/* ── 欢迎区 ── */}
       <div className="functional-dashboard-hero">
         <div>

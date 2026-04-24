@@ -568,6 +568,51 @@ export function StoresPage() {
     ];
   }, [data]);
 
+  const operationBoardCards = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+
+    return [
+      {
+        key: 'groups',
+        title: '分组作战面板',
+        eyebrow: `高风险分组 ${data.groupInsights.filter((group) => group.riskCount > 0).length} 个`,
+        helper: '按店铺分组汇总启用量、离线量和风险量，方便做多店铺批量治理。',
+        rows: data.groupInsights.slice(0, 4).map((group) => ({
+          name: group.name,
+          meta: `总数 ${group.count} 路 启用 ${group.activeCount} 路 风险 ${group.riskCount}`,
+          status: group.offlineCount > 0 ? `离线 ${group.offlineCount}` : '稳定',
+        })),
+      },
+      {
+        key: 'owners',
+        title: '负责人负载',
+        eyebrow: `负责人 ${data.ownerInsights.length} 人`,
+        helper: '聚合负责人名下店铺和风险负载，便于安排续登、授权和同步回收。',
+        rows: data.ownerInsights.slice(0, 4).map((owner) => ({
+          name: owner.ownerName,
+          meta: `店铺 ${owner.storeCount} 路 启用 ${owner.activeCount} 路 分组 ${owner.groups.join(' / ') || '未分组'}`,
+          status: owner.riskCount > 0 ? `风险 ${owner.riskCount}` : '稳定',
+        })),
+      },
+      {
+        key: 'risks',
+        title: '风险店铺队列',
+        eyebrow: `待处理 ${data.riskStores.length} 家`,
+        helper: '优先处理掉线、异常和登录态待验证店铺，避免同步链路中断。',
+        rows: data.riskStores.slice(0, 4).map((store) => ({
+          name: store.shopName,
+          meta: `${store.groupName} 路 ${store.ownerAccountName ?? '未分配负责人'} 路 ${store.healthStatusText}`,
+          status:
+            store.connectionStatusText === '已激活'
+              ? credentialRiskText(store.credentialRiskLevel)
+              : store.connectionStatusText,
+        })),
+      },
+    ];
+  }, [data]);
+
   const filteredStores = useMemo(() => {
     if (!data) {
       return [];
@@ -1061,6 +1106,33 @@ export function StoresPage() {
                         <div className="store-cell-meta">{row.meta}</div>
                       </div>
                       <Tag color={row.status === '待接入' ? 'default' : 'processing'}>{row.status}</Tag>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {data ? (
+          <div className="store-showcase-grid">
+            {operationBoardCards.map((card) => (
+              <div key={card.key} className="glass-panel store-showcase-card">
+                <div className="store-showcase-eyebrow">{card.eyebrow}</div>
+                <Typography.Title level={4} style={{ marginTop: 8, marginBottom: 8 }}>
+                  {card.title}
+                </Typography.Title>
+                <Typography.Text type="secondary">{card.helper}</Typography.Text>
+                <div className="store-showcase-list">
+                  {card.rows.map((row) => (
+                    <div key={`${card.key}-${row.name}`} className="store-showcase-row">
+                      <div>
+                        <div className="store-showcase-name">{row.name}</div>
+                        <div className="store-cell-meta">{row.meta}</div>
+                      </div>
+                      <Tag color={row.status.includes('风险') || row.status.includes('离线') ? 'warning' : 'processing'}>
+                        {row.status}
+                      </Tag>
                     </div>
                   ))}
                 </div>

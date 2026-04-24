@@ -91,6 +91,24 @@ export const workspaceRoutes: RouteConfig[] = [
 
 export const protectedRoutes: RouteConfig[] = [...coreRoutes, ...workspaceRoutes];
 
+export const platformRoutes: RouteConfig[] = [
+  {
+    path: '/platform/tenants',
+    component: lazyPage(() => import('./pages/PlatformTenantsPage'), 'PlatformTenantsPage'),
+  },
+  {
+    path: '/platform/security',
+    component: lazyPage(() => import('./pages/PlatformSecurityPage'), 'PlatformSecurityPage'),
+  },
+  {
+    path: '/platform/provisioning-jobs',
+    component: lazyPage(
+      () => import('./pages/PlatformProvisioningJobsPage'),
+      'PlatformProvisioningJobsPage',
+    ),
+  },
+];
+
 // 通配工作台路由（匹配 /workspace/:featureKey）
 export const FeatureWorkspacePage = lazyPage(
   () => import('./pages/FeatureWorkspacePage'),
@@ -107,4 +125,9 @@ export const StoreAuthorizePage = lazyPage(
 export const LoginPage = lazyPage(
   () => import('./pages/LoginPage'),
   'LoginPage',
+);
+
+export const TenantSelectPage = lazyPage(
+  () => import('./pages/TenantSelectPage'),
+  'TenantSelectPage',
 );

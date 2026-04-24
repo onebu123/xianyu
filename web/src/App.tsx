@@ -9,8 +9,10 @@ import { AppLayout } from './layout/AppLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import {
   protectedRoutes,
+  platformRoutes,
   FeatureWorkspacePage,
   StoreAuthorizePage,
+  TenantSelectPage,
   LoginPage,
 } from './routes';
 
@@ -30,18 +32,36 @@ function RouteFallback() {
 
 function ProtectedRoute() {
   const location = useLocation();
-  const { loading, user } = useAuth();
+  const { loading, memberships, scope, user } = useAuth();
+
+  const tenantWorkspaceHome = getFirstAccessiblePath(user?.role);
+  const platformHome = memberships.length > 0 ? '/auth/select-tenant' : '/platform/tenants';
 
   if (loading) {
     return <RouteFallback />;
   }
 
-  if (!user) {
+  if (!scope) {
     return <Navigate to="/login" replace />;
   }
 
+  if (scope === 'platform') {
+    if (
+      location.pathname === '/auth/select-tenant' ||
+      location.pathname.startsWith('/platform/')
+    ) {
+      return <AppLayout />;
+    }
+
+    return <Navigate to={platformHome} replace />;
+  }
+
+  if (location.pathname === '/auth/select-tenant' || location.pathname.startsWith('/platform/')) {
+    return <Navigate to={tenantWorkspaceHome} replace />;
+  }
+
   if (!canAccessPath(user?.role, location.pathname)) {
-    return <Navigate to={getFirstAccessiblePath(user?.role)} replace />;
+    return <Navigate to={tenantWorkspaceHome} replace />;
   }
 
   return <AppLayout />;
@@ -49,14 +69,18 @@ function ProtectedRoute() {
 
 function ProtectedPopupRoute({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const { loading, user } = useAuth();
+  const { loading, memberships, scope, user } = useAuth();
 
   if (loading) {
     return <RouteFallback />;
   }
 
-  if (!user) {
+  if (!scope) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (scope === 'platform') {
+    return <Navigate to={memberships.length > 0 ? '/auth/select-tenant' : '/platform/tenants'} replace />;
   }
 
   if (!canAccessPath(user?.role, location.pathname)) {
@@ -67,17 +91,39 @@ function ProtectedPopupRoute({ children }: { children: ReactNode }) {
 }
 
 function LoginRoute() {
-  const { loading, user } = useAuth();
+  const { loading, memberships, scope, user } = useAuth();
 
   if (loading) {
     return <RouteFallback />;
   }
 
-  if (user) {
+  if (scope === 'platform') {
+    return <Navigate to={memberships.length > 0 ? '/auth/select-tenant' : '/platform/tenants'} replace />;
+  }
+
+  if (scope && user) {
     return <Navigate to={getFirstAccessiblePath(user?.role)} replace />;
   }
 
   return <LoginPage />;
+}
+
+function HomeRoute() {
+  const { loading, memberships, scope, user } = useAuth();
+
+  if (loading) {
+    return <RouteFallback />;
+  }
+
+  if (!scope) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (scope === 'platform') {
+    return <Navigate to={memberships.length > 0 ? '/auth/select-tenant' : '/platform/tenants'} replace />;
+  }
+
+  return <Navigate to={getFirstAccessiblePath(user?.role)} replace />;
 }
 
 export default function App() {
@@ -97,8 +143,12 @@ export default function App() {
                 }
               />
               <Route element={<ProtectedRoute />}>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/" element={<HomeRoute />} />
+                <Route path="/auth/select-tenant" element={<TenantSelectPage />} />
                 {protectedRoutes.map(({ path, component: Component }) => (
+                  <Route key={path} path={path} element={<Component />} />
+                ))}
+                {platformRoutes.map(({ path, component: Component }) => (
                   <Route key={path} path={path} element={<Component />} />
                 ))}
                 <Route path="/workspace/:featureKey" element={<FeatureWorkspacePage />} />

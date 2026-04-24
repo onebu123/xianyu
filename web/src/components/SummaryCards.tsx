@@ -6,12 +6,15 @@ import { formatCurrency, formatNumber } from '../utils';
 interface SummaryItem {
   key: string;
   label: string;
-  value: number;
+  value: number | string;
   unit: string;
   compareRate?: number;
 }
 
 function formatValue(item: SummaryItem) {
+  if (typeof item.value === 'string') {
+    return item.value;
+  }
   if (item.unit === 'CNY') {
     return formatCurrency(item.value);
   }

@@ -210,6 +210,12 @@ export class AppMetricsCollector {
       alerts?: { activeCount?: number; criticalCount?: number };
       jobs?: { failedCount?: number; pendingCount?: number };
       backups?: { successCount?: number };
+      openPlatform?: {
+        appCount?: number;
+        activeAppCount?: number;
+        recentCallCount?: number;
+        blockedCallCount?: number;
+      };
     };
   }) {
     const snapshot = this.snapshot();
@@ -225,6 +231,16 @@ export class AppMetricsCollector {
     rows.push('# HELP sale_compass_info 应用基础信息。');
     rows.push('# TYPE sale_compass_info gauge');
     rows.push(`sale_compass_info${createLabelString(labels)} 1`);
+    rows.push('# HELP sale_compass_runtime_profile Runtime deployment profile information.');
+    rows.push('# TYPE sale_compass_runtime_profile gauge');
+    rows.push(
+      `sale_compass_runtime_profile${createLabelString({
+        deployment_mode: input.config.deploymentMode,
+        background_jobs_mode: input.config.backgroundJobsMode,
+        queue_backend: input.config.queueBackend,
+        control_plane_db_engine: input.config.controlPlaneDatabaseEngine,
+      })} 1`,
+    );
 
     rows.push('# HELP sale_compass_uptime_seconds 应用运行时长（秒）。');
     rows.push('# TYPE sale_compass_uptime_seconds gauge');
@@ -324,6 +340,21 @@ export class AppMetricsCollector {
     rows.push('# HELP sale_compass_runtime_strict_mode 是否启用严格模式。');
     rows.push('# TYPE sale_compass_runtime_strict_mode gauge');
     rows.push(`sale_compass_runtime_strict_mode ${input.config.runtimeMode === 'demo' ? 0 : 1}`);
+
+    rows.push('# HELP sale_compass_open_platform_apps_total Total registered open-platform apps.');
+    rows.push('# TYPE sale_compass_open_platform_apps_total gauge');
+    rows.push(`sale_compass_open_platform_apps_total ${input.healthSnapshot?.openPlatform?.appCount ?? 0}`);
+    rows.push('# HELP sale_compass_open_platform_apps_active Active open-platform apps.');
+    rows.push('# TYPE sale_compass_open_platform_apps_active gauge');
+    rows.push(`sale_compass_open_platform_apps_active ${input.healthSnapshot?.openPlatform?.activeAppCount ?? 0}`);
+    rows.push('# HELP sale_compass_open_platform_calls_recent Recent open-platform calls.');
+    rows.push('# TYPE sale_compass_open_platform_calls_recent gauge');
+    rows.push(`sale_compass_open_platform_calls_recent ${input.healthSnapshot?.openPlatform?.recentCallCount ?? 0}`);
+    rows.push('# HELP sale_compass_open_platform_calls_blocked_recent Recent blocked open-platform calls.');
+    rows.push('# TYPE sale_compass_open_platform_calls_blocked_recent gauge');
+    rows.push(
+      `sale_compass_open_platform_calls_blocked_recent ${input.healthSnapshot?.openPlatform?.blockedCallCount ?? 0}`,
+    );
 
     return `${rows.join('\n')}\n`;
   }

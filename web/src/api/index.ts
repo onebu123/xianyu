@@ -9,6 +9,7 @@ export * from './types/after-sale.types';
 export * from './types/product.types';
 export * from './types/store.types';
 export * from './types/workspace.types';
+export * from './types/open-platform.types';
 export * from './types/filter.types';
 
 // 工具函数

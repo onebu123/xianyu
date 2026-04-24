@@ -183,6 +183,32 @@ export interface StoreManagementOverviewResponse {
     name: string;
     count: number;
   }>;
+  groupInsights: Array<{
+    name: string;
+    count: number;
+    activeCount: number;
+    riskCount: number;
+    offlineCount: number;
+  }>;
+  ownerInsights: Array<{
+    ownerName: string;
+    storeCount: number;
+    activeCount: number;
+    riskCount: number;
+    groups: string[];
+  }>;
+  riskStores: Array<{
+    id: number;
+    shopName: string;
+    platform: StorePlatform;
+    groupName: string;
+    ownerAccountName: string | null;
+    connectionStatus: StoreConnectionStatus;
+    connectionStatusText: string;
+    healthStatus: StoreHealthStatus;
+    healthStatusText: string;
+    credentialRiskLevel: StoreCredentialRiskLevel | null;
+  }>;
   summaries: {
     totalStoreCount: number;
     xianyuStoreCount: number;

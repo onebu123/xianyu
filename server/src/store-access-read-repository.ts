@@ -573,6 +573,95 @@ export class StoreAccessReadRepository {
     )
       .map(([name, count]) => ({ name, count }))
       .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name, 'zh-CN'));
+    const groupInsights = Array.from(
+      stores.reduce((accumulator, store) => {
+        const current = accumulator.get(store.groupName) ?? {
+          name: store.groupName,
+          count: 0,
+          activeCount: 0,
+          riskCount: 0,
+          offlineCount: 0,
+        };
+        current.count += 1;
+        if (store.connectionStatus === 'active') {
+          current.activeCount += 1;
+        }
+        if (store.connectionStatus === 'offline') {
+          current.offlineCount += 1;
+        }
+        if (
+          store.connectionStatus !== 'active' ||
+          store.healthStatus === 'warning' ||
+          store.healthStatus === 'abnormal' ||
+          store.credentialRiskLevel === 'warning' ||
+          store.credentialRiskLevel === 'offline' ||
+          store.credentialRiskLevel === 'abnormal'
+        ) {
+          current.riskCount += 1;
+        }
+        accumulator.set(store.groupName, current);
+        return accumulator;
+      }, new Map<string, { name: string; count: number; activeCount: number; riskCount: number; offlineCount: number }>()),
+    )
+      .map(([, row]) => row)
+      .sort((left, right) => right.riskCount - left.riskCount || right.count - left.count);
+    const ownerInsights = Array.from(
+      stores.reduce((accumulator, store) => {
+        const ownerName = store.ownerAccountName?.trim() || '未分配负责人';
+        const current = accumulator.get(ownerName) ?? {
+          ownerName,
+          storeCount: 0,
+          activeCount: 0,
+          riskCount: 0,
+          groups: new Set<string>(),
+        };
+        current.storeCount += 1;
+        if (store.connectionStatus === 'active') {
+          current.activeCount += 1;
+        }
+        if (
+          store.connectionStatus !== 'active' ||
+          store.healthStatus === 'warning' ||
+          store.healthStatus === 'abnormal' ||
+          store.credentialRiskLevel === 'warning' ||
+          store.credentialRiskLevel === 'offline' ||
+          store.credentialRiskLevel === 'abnormal'
+        ) {
+          current.riskCount += 1;
+        }
+        current.groups.add(store.groupName);
+        accumulator.set(ownerName, current);
+        return accumulator;
+      }, new Map<string, { ownerName: string; storeCount: number; activeCount: number; riskCount: number; groups: Set<string> }>()),
+    )
+      .map(([, row]) => ({
+        ...row,
+        groups: [...row.groups].sort((left, right) => left.localeCompare(right, 'zh-CN')),
+      }))
+      .sort((left, right) => right.riskCount - left.riskCount || right.storeCount - left.storeCount);
+    const riskStores = stores
+      .filter(
+        (store) =>
+          store.connectionStatus !== 'active' ||
+          store.healthStatus === 'warning' ||
+          store.healthStatus === 'abnormal' ||
+          store.credentialRiskLevel === 'warning' ||
+          store.credentialRiskLevel === 'offline' ||
+          store.credentialRiskLevel === 'abnormal',
+      )
+      .slice(0, 12)
+      .map((store) => ({
+        id: store.id,
+        shopName: store.shopName,
+        platform: store.platform,
+        groupName: store.groupName,
+        ownerAccountName: store.ownerAccountName,
+        connectionStatus: store.connectionStatus,
+        connectionStatusText: store.connectionStatusText,
+        healthStatus: store.healthStatus,
+        healthStatusText: store.healthStatusText,
+        credentialRiskLevel: store.credentialRiskLevel,
+      }));
 
     return {
       profile: profile ?? {
@@ -592,6 +681,9 @@ export class StoreAccessReadRepository {
       authSessions,
       healthChecks,
       groups,
+      groupInsights,
+      ownerInsights,
+      riskStores,
       summaries: {
         totalStoreCount: stores.length,
         xianyuStoreCount: xianyuStores.length,

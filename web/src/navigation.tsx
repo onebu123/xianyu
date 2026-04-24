@@ -61,6 +61,21 @@ export interface WorkspaceBlueprint {
   checklist: string[];
 }
 
+export interface PlatformNavigationItem {
+  key: string;
+  label: string;
+  path: string;
+  description: string;
+  icon: ReactNode;
+}
+
+export interface PlatformNavigationGroup {
+  key: string;
+  label: string;
+  icon: ReactNode;
+  items: PlatformNavigationItem[];
+}
+
 export const workspaceBlueprints: Record<WorkspaceGroupKey, WorkspaceBlueprint> = {
   sales: {
     summaryLabels: ['待处理任务', '自动化策略', '最近更新'],
@@ -494,6 +509,44 @@ export const navigationGroups: NavigationGroup[] = [
         description: '汇总订单导出、经营摘要与经营周报。',
         icon: <FileTextOutlined />,
         kind: 'core',
+      },
+    ],
+  },
+];
+
+export const platformNavigationGroups: PlatformNavigationGroup[] = [
+  {
+    key: 'platformControl',
+    label: 'SaaS 控制面',
+    icon: <GlobalOutlined />,
+    items: [
+      {
+        key: 'tenant-select',
+        label: '进入租户',
+        path: '/auth/select-tenant',
+        description: '从当前平台账号可访问的租户中选择一个进入业务工作台。',
+        icon: <AppstoreOutlined />,
+      },
+      {
+        key: 'platform-tenants',
+        label: '租户管理',
+        path: '/platform/tenants',
+        description: '查看租户状态、成员关系、开通状态与生命周期管理。',
+        icon: <BankOutlined />,
+      },
+      {
+        key: 'platform-security',
+        label: '骞冲彴瀹夊叏',
+        path: '/platform/security',
+        description: '平台登录二次验证、MFA 绑定与敏感操作安全基线。',
+        icon: <SafetyOutlined />,
+      },
+      {
+        key: 'platform-provisioning-jobs',
+        label: '开通任务',
+        path: '/platform/provisioning-jobs',
+        description: '查看租户开通任务、失败原因与重试执行结果。',
+        icon: <FundProjectionScreenOutlined />,
       },
     ],
   },

@@ -1,56 +1,140 @@
-import { ReloadOutlined, BookOutlined } from '@ant-design/icons';
+import { BookOutlined, ReloadOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { Alert, Button, Skeleton, Table, Tag, Typography } from 'antd';
 import type { TableProps } from 'antd';
 import { useCallback, useMemo } from 'react';
 
 import { apiRequest } from '../api';
-import type { WorkspaceOverviewResponse } from '../api';
-import { useRemoteData } from '../hooks/useRemoteData';
+import type { OpenPlatformDocsDetailResponse } from '../api';
 import { SummaryCards } from '../components/SummaryCards';
+import { useRemoteData } from '../hooks/useRemoteData';
+
+function statusColor(status: OpenPlatformDocsDetailResponse['docs'][number]['status']) {
+  return (
+    {
+      published: 'success',
+      draft: 'warning',
+    }[status] ?? 'default'
+  );
+}
+
+function statusLabel(status: OpenPlatformDocsDetailResponse['docs'][number]['status']) {
+  return (
+    {
+      published: '已发布',
+      draft: '草稿',
+    }[status] ?? status
+  );
+}
 
 export function OpenDocsPage() {
+  const loader = useCallback(
+    async () => apiRequest<OpenPlatformDocsDetailResponse>('/api/open-platform/docs', undefined),
+    [],
+  );
 
-  const loader = useCallback(async () => {
-    return apiRequest<WorkspaceOverviewResponse>('/api/workspaces/open-docs', undefined);
-  }, []);
+  const { data, loading, error, reload } = useRemoteData(loader);
 
-  const { data, loading, error, reload } = useRemoteData<WorkspaceOverviewResponse>(loader);
+  const summaryItems = useMemo(
+    () =>
+      (data?.metrics ?? []).map((metric, index) => ({
+        key: `metric-${index}`,
+        label: metric.label,
+        value: typeof metric.value === 'string' ? metric.value : Number(metric.value ?? 0),
+        unit: metric.unit,
+      })),
+    [data],
+  );
 
-  const summary = useMemo(() => {
-    if (!data?.summary) return [];
-    return data.summary.map((s, i) => ({
-      key: `s-${i}`, label: s.label, value: typeof s.value === 'string' ? parseFloat(s.value) || 0 : s.value, unit: '',
-    }));
-  }, [data]);
-
-  const tableData = useMemo(() => {
-    if (!data?.tasks) return [];
-    return data.tasks.map((t, i) => ({ key: i, ...t }));
-  }, [data]);
-
-  const columns = useMemo<TableProps['columns']>(
+  const columns = useMemo<TableProps<OpenPlatformDocsDetailResponse['docs'][number]>['columns']>(
     () => [
-      { title: '文档', dataIndex: 'title', width: 200 },
-      { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => <Tag color={v === 'done' ? 'success' : v === 'active' ? 'processing' : 'default'}>{v === 'done' ? '已发布' : v === 'active' ? '更新中' : '草稿'}</Tag> },
-      { title: '说明', dataIndex: 'description', ellipsis: true },
+      {
+        title: '文档',
+        dataIndex: 'title',
+        width: 220,
+        render: (_value, row) => (
+          <div className="store-cell-stack">
+            <Typography.Text strong>{row.title}</Typography.Text>
+            <div className="store-cell-meta">{row.category} 路 {row.versionTag}</div>
+          </div>
+        ),
+      },
+      {
+        title: '接口',
+        dataIndex: 'routePath',
+        width: 320,
+        render: (_value, row) => (
+          <div className="store-cell-stack">
+            <Typography.Text code>
+              {row.httpMethod} {row.routePath}
+            </Typography.Text>
+            <div className="store-cell-meta">Scope：{row.scopeText}</div>
+          </div>
+        ),
+      },
+      {
+        title: '说明',
+        dataIndex: 'description',
+        ellipsis: true,
+      },
+      {
+        title: '状态',
+        dataIndex: 'status',
+        width: 120,
+        render: (value: OpenPlatformDocsDetailResponse['docs'][number]['status']) => (
+          <Tag color={statusColor(value)}>{statusLabel(value)}</Tag>
+        ),
+      },
+      {
+        title: '示例',
+        dataIndex: 'samplePayload',
+        width: 240,
+        render: (value: string | null) => (
+          <Typography.Text code style={{ whiteSpace: 'pre-wrap' }}>
+            {value || '-'}
+          </Typography.Text>
+        ),
+      },
     ],
     [],
   );
 
   return (
-    <PageContainer title="接口文档" subTitle="维护接口文档、接入指南和字段说明。" style={{ paddingInline: 0 }}
-      extra={[<Button key="refresh" icon={<ReloadOutlined />} onClick={() => void reload()}>刷新</Button>]}
+    <PageContainer
+      title="接口文档"
+      subTitle="集中维护开放平台公开接口、范围权限、版本标签和联调示例。"
+      style={{ paddingInline: 0 }}
+      extra={[
+        <Button key="refresh" icon={<ReloadOutlined />} onClick={() => void reload()}>
+          刷新
+        </Button>,
+      ]}
     >
       <div className="page-grid">
-        <Alert type="info" showIcon icon={<BookOutlined />} message="文档中心" description="统一管理所有开放接口的文档、密钥说明和接入示例。" />
+        <Alert
+          type="info"
+          showIcon
+          icon={<BookOutlined />}
+          message="文档中心"
+          description="当前阶段已提供经营看板摘要和订单概览两条公开读取接口，履约回调协议已预留为草稿文档。"
+        />
         {error && <Alert type="error" showIcon message={error} />}
-        {loading || !data ? <Skeleton active paragraph={{ rows: 6 }} /> : (
+        {loading || !data ? (
+          <Skeleton active paragraph={{ rows: 8 }} />
+        ) : (
           <>
-            {summary.length > 0 && <SummaryCards items={summary} />}
+            {summaryItems.length > 0 && <SummaryCards items={summaryItems} />}
             <div className="glass-panel" style={{ padding: 24 }}>
-              <Typography.Title level={4} style={{ marginBottom: 16 }}>文档列表</Typography.Title>
-              <Table dataSource={tableData} columns={columns} pagination={false} size="middle" />
+              <Typography.Title level={4} style={{ marginBottom: 16 }}>
+                文档目录
+              </Typography.Title>
+              <Table
+                rowKey="id"
+                dataSource={data.docs}
+                columns={columns}
+                pagination={{ pageSize: 8, showSizeChanger: false }}
+                scroll={{ x: 1240 }}
+              />
             </div>
           </>
         )}

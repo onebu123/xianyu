@@ -1,7 +1,16 @@
 export type DatePreset = 'today' | 'last7Days' | 'last30Days' | 'last90Days';
 export type RuntimeMode = 'demo' | 'staging' | 'prod';
+export type DeploymentMode = 'private' | 'saas';
+export type BackgroundJobsMode = 'embedded' | 'worker' | 'disabled';
+export type QueueBackend = 'sqlite' | 'redis';
+export type DatabaseEngine = 'sqlite' | 'postgres';
 export type SystemUserRole = 'admin' | 'operator' | 'support' | 'finance';
 export type SystemUserStatus = 'active' | 'disabled';
+export type PlatformUserRole = 'platform_admin' | 'platform_operator';
+export type PlatformUserStatus = 'active' | 'disabled';
+export type TenantStatus = 'provisioning' | 'active' | 'suspended';
+export type TenantMembershipRole = 'owner' | 'admin' | 'member' | 'support';
+export type AuthScope = 'private' | 'platform' | 'tenant';
 export type StoreAuthIntegrationMode =
   | 'simulated'
   | 'xianyu_browser_oauth'
@@ -64,4 +73,77 @@ export interface SystemUserRecord {
   lastLoginAt: string | null;
   tokenVersion?: number;
   passwordHash?: string;
+}
+
+export interface PlatformUserRecord {
+  id: number;
+  username: string;
+  displayName: string;
+  role: PlatformUserRole;
+  status: PlatformUserStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string | null;
+  passwordChangedAt: string | null;
+  tokenVersion?: number;
+  passwordHash?: string;
+  mfaSecretRefId?: number | null;
+}
+
+export interface TenantRecord {
+  id: number;
+  tenantKey: string;
+  tenantName: string;
+  displayName: string;
+  status: TenantStatus;
+  businessDbPath: string;
+  createdAt: string;
+  updatedAt: string;
+  provisionedAt: string | null;
+  suspendedAt: string | null;
+}
+
+export interface TenantMembershipRecord {
+  id: number;
+  tenantId: number;
+  platformUserId: number;
+  membershipRole: TenantMembershipRole;
+  systemRole: SystemUserRole;
+  status: 'active' | 'disabled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantProvisioningJobRecord {
+  id: number;
+  tenantId: number;
+  jobType: 'tenant_bootstrap';
+  status: 'pending' | 'running' | 'succeeded' | 'failed';
+  detail: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+export interface SecretRefRecord {
+  id: number;
+  provider: string;
+  refKey: string;
+  cipherText: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppAuthClaims {
+  sub: number;
+  username: string;
+  displayName: string;
+  role: string;
+  status: string;
+  ver: number;
+  scope: AuthScope;
+  tenantId?: number;
+  membershipRole?: TenantMembershipRole;
+  systemRole?: SystemUserRole;
 }

@@ -5,16 +5,27 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
+  getEnterpriseLaunchIssues,
   getRuntimeConfigIssues,
   getRuntimeConfigSummary,
   getRuntimeStartupIssues,
   type ResolvedAppConfig,
 } from './config.js';
+import {
+  createDatabaseProviderRuntimeSummary,
+  type DatabaseProviderRuntimeSummary,
+} from './database-provider.js';
 
 function createConfig(overrides: Partial<ResolvedAppConfig> = {}): ResolvedAppConfig {
   return {
+    deploymentMode: 'private',
     runtimeMode: 'prod',
     envProfile: 'production',
+    backgroundJobsMode: 'embedded',
+    queueBackend: 'sqlite',
+    businessDatabaseEngine: 'sqlite',
+    tenantBusinessDatabaseEngine: 'sqlite',
+    controlPlaneDatabaseEngine: 'sqlite',
     port: 4300,
     host: '0.0.0.0',
     trustProxy: true,
@@ -31,6 +42,13 @@ function createConfig(overrides: Partial<ResolvedAppConfig> = {}): ResolvedAppCo
     privilegedWriteWindowMinutes: 10,
     dataRoot: path.join(os.tmpdir(), 'sale-compass-config', 'data'),
     dbPath: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'app.db'),
+    businessPostgresUrl: null,
+    controlPlaneDbPath: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'control-plane.db'),
+    controlPlanePostgresUrl: null,
+    tenantDatabaseRoot: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'tenants'),
+    tenantBusinessPostgresUrlTemplate: null,
+    redisUrl: null,
+    redisPrefix: 'sale-compass',
     logDir: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'logs'),
     backupDir: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'backups'),
     uploadDir: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'uploads'),
@@ -135,11 +153,177 @@ describe('运行配置预检', () => {
     expect(summary).toMatchObject({
       strictMode: true,
       envProfile: 'production',
+      backgroundJobsMode: 'embedded',
+      queueBackend: 'sqlite',
+      businessDatabaseEngine: 'sqlite',
+      tenantBusinessDatabaseEngine: 'sqlite',
+      controlPlaneDatabaseEngine: 'sqlite',
+      businessPostgresConfigured: false,
+      controlPlanePostgresConfigured: false,
+      tenantBusinessPostgresTemplateConfigured: false,
+      redisConfigured: false,
       envFileLoaded: true,
       requestLoggingEnabled: true,
       metricsEnabled: true,
       logLevel: 'info',
     });
     expect(summary.envFilesLoaded).toHaveLength(2);
+  });
+
+  it('tenant business runtime 摘要基于 capability checklist 生成而不是无条件写死', () => {
+    const runtimeSummary = createDatabaseProviderRuntimeSummary({
+      privateDbPath: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'app.db'),
+      tenantDatabaseRoot: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'tenants'),
+      businessDatabaseEngine: 'sqlite',
+      businessPostgresUrl: null,
+      tenantBusinessDatabaseEngine: 'postgres',
+      tenantBusinessPostgresUrlTemplate: 'postgres://tenant/{tenantId}',
+    });
+
+    expect(runtimeSummary.tenantDatabase.runtimeEngine).toBe('hybrid');
+    expect(runtimeSummary.tenantDatabase.runtimeReady).toBe(false);
+    expect(runtimeSummary.tenantDatabase.readyCapabilities.length).toBeGreaterThan(5);
+    expect(runtimeSummary.tenantDatabase.readyCapabilities).toContain('store auth session writes');
+    expect(runtimeSummary.tenantDatabase.pendingCapabilities).toContain(
+      'ai-service auto-sync runtime wiring',
+    );
+    expect(runtimeSummary.tenantDatabase.pendingCapabilities).toContain(
+      'ai-bargain auto-sync runtime wiring',
+    );
+    expect(runtimeSummary.tenantDatabase.runtimeBlockedReason).toContain(
+      'Remaining SQLite-primary capabilities',
+    );
+  });
+
+  it('配置摘要会透出 business runtime capability 清单，供 preflight 直接消费', () => {
+    const runtimeSummary = createDatabaseProviderRuntimeSummary({
+      privateDbPath: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'app.db'),
+      tenantDatabaseRoot: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'tenants'),
+      businessDatabaseEngine: 'sqlite',
+      businessPostgresUrl: null,
+      tenantBusinessDatabaseEngine: 'postgres',
+      tenantBusinessPostgresUrlTemplate: 'postgres://tenant/{tenantId}',
+    });
+    const summary = getRuntimeConfigSummary(createConfig(), runtimeSummary);
+
+    expect(summary.databaseRuntime).toBeTruthy();
+    expect(summary.databaseRuntime?.tenantDatabase.runtimeEngine).toBe('hybrid');
+    expect(summary.databaseRuntime?.tenantDatabase.readyCapabilities.length).toBeGreaterThan(5);
+    expect(summary.databaseRuntime?.tenantDatabase.readyCapabilities).toContain(
+      'open-platform management writes',
+    );
+    expect(summary.databaseRuntime?.tenantDatabase.readyCapabilities).toContain(
+      'open-platform public verify/call log',
+    );
+  });
+
+  it('启用 Redis 队列时必须显式提供连接地址', () => {
+    const issues = getRuntimeConfigIssues(
+      createConfig({
+        queueBackend: 'redis',
+        redisUrl: null,
+      }),
+    );
+
+    expect(issues.some((issue) => issue.field === 'APP_REDIS_URL')).toBe(true);
+  });
+
+  it('SaaS 控制面切到 PostgreSQL 时必须提供连接地址', () => {
+    const issues = getRuntimeConfigIssues(
+      createConfig({
+        deploymentMode: 'saas',
+        controlPlaneDatabaseEngine: 'postgres',
+        controlPlanePostgresUrl: null,
+      }),
+    );
+
+    expect(issues.some((issue) => issue.field === 'APP_CONTROL_PLANE_POSTGRES_URL')).toBe(true);
+  });
+
+  it('鍚敤 PostgreSQL 业务库目标时必须提供连接配置', () => {
+    const privateIssues = getRuntimeConfigIssues(
+      createConfig({
+        businessDatabaseEngine: 'postgres',
+        businessPostgresUrl: null,
+      }),
+    );
+    const tenantIssues = getRuntimeConfigIssues(
+      createConfig({
+        deploymentMode: 'saas',
+        tenantBusinessDatabaseEngine: 'postgres',
+        tenantBusinessPostgresUrlTemplate: null,
+      }),
+    );
+
+    expect(privateIssues.some((issue) => issue.field === 'APP_BUSINESS_POSTGRES_URL')).toBe(true);
+    expect(
+      tenantIssues.some((issue) => issue.field === 'APP_TENANT_BUSINESS_POSTGRES_URL_TEMPLATE'),
+    ).toBe(true);
+  });
+  it('SaaS prod 企业级上线门槛会拦截未完成的正式版基线', () => {
+    const issues = getEnterpriseLaunchIssues(
+      createConfig({
+        deploymentMode: 'saas',
+        runtimeMode: 'prod',
+        envProfile: 'production',
+        storeAuthMode: 'simulated',
+        controlPlaneDatabaseEngine: 'sqlite',
+        queueBackend: 'sqlite',
+        metricsToken: null,
+        backgroundJobsMode: 'embedded',
+        tenantBusinessDatabaseEngine: 'postgres',
+      }),
+    );
+
+    expect(issues.some((issue) => issue.field === 'APP_CONTROL_PLANE_DB_ENGINE')).toBe(true);
+    expect(issues.some((issue) => issue.field === 'APP_QUEUE_BACKEND')).toBe(true);
+    expect(issues.some((issue) => issue.field === 'APP_METRICS_TOKEN')).toBe(true);
+    expect(issues.some((issue) => issue.field === 'APP_STORE_AUTH_MODE')).toBe(true);
+    expect(issues.some((issue) => issue.field === 'business_database_runtime')).toBe(true);
+  });
+
+  it('SaaS prod 在租户业务库 runtime 已正式切到 PostgreSQL 时不再报 runtime 门禁', () => {
+    const runtimeSummary: DatabaseProviderRuntimeSummary = {
+      privateDatabase: {
+        configuredEngine: 'sqlite',
+        runtimeEngine: 'sqlite',
+        sqlitePath: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'app.db'),
+        postgresConfigured: false,
+        runtimeReady: true,
+        runtimeBlockedReason: null,
+        readyCapabilities: [],
+        pendingCapabilities: [],
+      },
+      tenantDatabase: {
+        configuredEngine: 'postgres',
+        runtimeEngine: 'postgres',
+        sqliteRootPath: path.join(os.tmpdir(), 'sale-compass-config', 'data', 'tenants'),
+        postgresTemplateConfigured: true,
+        postgresConfigured: true,
+        runtimeReady: true,
+        runtimeBlockedReason: null,
+        readyCapabilities: ['tenant runtime fully migrated'],
+        pendingCapabilities: [],
+      },
+    };
+
+    const issues = getEnterpriseLaunchIssues(
+      createConfig({
+        deploymentMode: 'saas',
+        runtimeMode: 'prod',
+        envProfile: 'production',
+        storeAuthMode: 'xianyu_web_session',
+        controlPlaneDatabaseEngine: 'postgres',
+        controlPlanePostgresUrl: 'postgres://control-plane',
+        queueBackend: 'redis',
+        redisUrl: 'redis://127.0.0.1:6379/0',
+        backgroundJobsMode: 'worker',
+        tenantBusinessDatabaseEngine: 'postgres',
+        tenantBusinessPostgresUrlTemplate: 'postgres://tenant/{tenantId}',
+      }),
+      runtimeSummary,
+    );
+
+    expect(issues.some((issue) => issue.field === 'business_database_runtime')).toBe(false);
   });
 });

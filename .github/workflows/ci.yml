@@ -14,9 +14,51 @@ permissions:
 
 jobs:
   validate:
+    name: ${{ matrix.job_name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job_name: private-demo
+            app_deployment_mode: private
+            app_runtime_mode: demo
+            app_enable_demo_data: "true"
+            run_preflight: "true"
+            smoke_command: ""
+            extra_smoke_command: ""
+            web_smoke_command: ""
+            worker_dry_run: "false"
+          - job_name: private-prod
+            app_deployment_mode: private
+            app_runtime_mode: staging
+            app_enable_demo_data: "false"
+            run_preflight: "true"
+            smoke_command: "npm run smoke:release"
+            extra_smoke_command: "npm run smoke:queue:redis && npm run smoke:business-db:postgres"
+            web_smoke_command: "npm run smoke:web:private"
+            worker_dry_run: "false"
+          - job_name: saas-control-plane
+            app_deployment_mode: saas
+            app_runtime_mode: staging
+            app_enable_demo_data: "false"
+            run_preflight: "true"
+            smoke_command: "npm run smoke:saas"
+            extra_smoke_command: "npm run smoke:saas:postgres"
+            web_smoke_command: "npm run smoke:web:saas"
+            worker_dry_run: "false"
+          - job_name: saas-tenant-worker
+            app_deployment_mode: saas
+            app_runtime_mode: staging
+            app_enable_demo_data: "false"
+            run_preflight: "false"
+            smoke_command: ""
+            extra_smoke_command: ""
+            web_smoke_command: ""
+            worker_dry_run: "true"
     env:
-      APP_RUNTIME_MODE: staging
+      APP_DEPLOYMENT_MODE: ${{ matrix.app_deployment_mode }}
+      APP_RUNTIME_MODE: ${{ matrix.app_runtime_mode }}
       HOST: 127.0.0.1
       PORT: 4300
       JWT_SECRET: ci-jwt-secret-20260312-abcdefghijklmnopqrstuvwxyz
@@ -24,7 +66,7 @@ jobs:
       APP_INIT_ADMIN_USERNAME: ci-admin
       APP_INIT_ADMIN_PASSWORD: CiAdmin@20260312
       APP_INIT_ADMIN_DISPLAY_NAME: CI管理员
-      APP_ENABLE_DEMO_DATA: "false"
+      APP_ENABLE_DEMO_DATA: ${{ matrix.app_enable_demo_data }}
       APP_METRICS_ENABLED: "true"
       APP_METRICS_TOKEN: ci-metrics-token-20260312
       APP_LOG_LEVEL: info
@@ -53,7 +95,25 @@ jobs:
         run: npm run build
 
       - name: 启动前检查
+        if: matrix.run_preflight == 'true'
         run: npm run preflight
 
       - name: 发布烟测
-        run: npm run smoke:release
+        if: matrix.smoke_command != ''
+        run: ${{ matrix.smoke_command }}
+
+      - name: 企业基线联调
+        if: matrix.extra_smoke_command != ''
+        run: ${{ matrix.extra_smoke_command }}
+
+      - name: 安装 Playwright Chromium
+        if: matrix.web_smoke_command != ''
+        run: npx playwright install --with-deps chromium
+
+      - name: 浏览器烟测
+        if: matrix.web_smoke_command != ''
+        run: ${{ matrix.web_smoke_command }}
+
+      - name: Worker 启动基线检查
+        if: matrix.worker_dry_run == 'true'
+        run: npm run worker:dry-run -w server
