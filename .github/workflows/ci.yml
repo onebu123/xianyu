@@ -89,6 +89,10 @@ jobs:
         run: npm run lint
 
       - name: 运行测试
+        env:
+          APP_DEPLOYMENT_MODE: private
+          APP_RUNTIME_MODE: demo
+          APP_ENABLE_DEMO_DATA: "true"
         run: npm run test
 
       - name: 构建产物
