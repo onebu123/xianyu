@@ -111,7 +111,7 @@ function resolveRequestAuthToken(request) {
     }
     return null;
 }
-const APP_VERSION = process.env.APP_VERSION?.trim() || '1.0.0';
+const APP_VERSION = process.env.APP_VERSION?.trim() || '2.0.0';
 function sanitizeUser(user) {
     return {
         id: user.id,

@@ -25,7 +25,7 @@ const timestamp = [
     String(now.getSeconds()).padStart(2, '0'),
   ].join('');
 
-const version = String(rootPackage.version || '1.0.0');
+const version = String(rootPackage.version || '2.0.0');
 const releaseName = `sale-compass-v${version}-${timestamp}`;
 const releaseRoot = path.join(repoRoot, 'output', 'releases');
 const releaseDir = path.join(releaseRoot, releaseName);
@@ -65,12 +65,14 @@ const mustHaveDocs = [
   'docs/upgrade.md',
   'docs/rollback.md',
   'docs/customer-delivery-handbook.md',
-  'docs/v1-release-notes.md',
-  'docs/v1-scope-freeze.md',
-  'docs/v1-support-boundary.md',
-  'docs/v1-acceptance-checklist.md',
-  'docs/v1-pilot-run.md',
-  'docs/v1-known-issues.md',
+  'docs/saas-foundation.md',
+  'docs/v2-architecture-blueprint.md',
+  'docs/v2-engineering-baseline.md',
+  'docs/v2-release-notes.md',
+  'docs/v2-scope-freeze.md',
+  'docs/v2-support-boundary.md',
+  'docs/v2-acceptance-checklist.md',
+  'docs/v2-pilot-run.md',
 ];
 
 function ensureExists(filePath, hint) {

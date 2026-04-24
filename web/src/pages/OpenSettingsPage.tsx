@@ -112,7 +112,7 @@ export function OpenSettingsPage() {
                   <Input placeholder="例如：ops@example.com" />
                 </Form.Item>
                 <Form.Item label="对外文档版本" name="publishedVersion">
-                  <Input placeholder="例如：v1" />
+                  <Input placeholder="例如：v2" />
                 </Form.Item>
                 <Form.Item label="默认限流" name="defaultRateLimitPerMinute">
                   <InputNumber min={30} max={5000} addonAfter="次/分钟" style={{ width: '100%' }} />

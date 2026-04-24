@@ -540,7 +540,7 @@ describe('销售统计接口', () => {
         expect(response.statusCode).toBe(200);
         expect(response.json()).toMatchObject({
             status: 'ok',
-            version: '1.0.0',
+            version: '2.0.0',
             runtimeMode: 'demo',
         });
         // 确认不再暴露内部配置和路径信息

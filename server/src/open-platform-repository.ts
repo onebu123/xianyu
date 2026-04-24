@@ -309,7 +309,7 @@ export class OpenPlatformRepository {
         },
         {
           label: '当前版本',
-          value: settings?.publishedVersion ?? 'v1',
+          value: settings?.publishedVersion ?? 'v2',
           unit: '',
           helper: '对外发布的文档版本',
         },

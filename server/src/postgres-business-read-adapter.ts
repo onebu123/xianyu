@@ -7557,7 +7557,7 @@ export class PostgresBusinessReadAdapter {
         },
         {
           label: '当前版本',
-          value: settings?.publishedVersion ?? 'v1',
+          value: settings?.publishedVersion ?? 'v2',
           unit: '',
           helper: '对外发布的文档版本',
         },
@@ -16138,7 +16138,7 @@ export class PostgresBusinessReadAdapter {
     return {
       webhookBaseUrl: String(row.webhookBaseUrl ?? ''),
       notifyEmail: String(row.notifyEmail ?? ''),
-      publishedVersion: String(row.publishedVersion ?? 'v1'),
+      publishedVersion: String(row.publishedVersion ?? 'v2'),
       defaultRateLimitPerMinute: toNumber(row.defaultRateLimitPerMinute),
       signatureTtlSeconds: toNumber(row.signatureTtlSeconds),
       whitelistEnforced: Boolean(row.whitelistEnforced),
