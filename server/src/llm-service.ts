@@ -45,7 +45,7 @@ export function resolveLlmConfig(dbApiKey?: string | null): LlmConfig | null {
     dbApiKey?.trim() ||
     null;
 
-  if (!apiKey || apiKey === 'sk-demo-openai-private-key') {
+  if (!apiKey || apiKey === 'demo-openai-private-key') {
     return null; // 没配置或是演示占位值
   }
 

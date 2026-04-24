@@ -177,7 +177,7 @@ describe('第 1 轮安全与权限体系', () => {
       headers: { authorization: `Bearer ${tokens.admin}` },
       payload: {
         description: 'AI 客服模型密钥',
-        value: 'sk-live-sensitive-secret',
+        value: 'test-live-sensitive-secret',
       },
     });
     expect(response.statusCode).toBe(200);
@@ -195,8 +195,8 @@ describe('第 1 轮安全与权限体系', () => {
       .get() as { encryptedValue: string; maskedValue: string };
     sqlite.close();
 
-    expect(row.encryptedValue).not.toBe('sk-live-sensitive-secret');
-    expect(row.encryptedValue.includes('sk-live-sensitive-secret')).toBe(false);
+    expect(row.encryptedValue).not.toBe('test-live-sensitive-secret');
+    expect(row.encryptedValue.includes('test-live-sensitive-secret')).toBe(false);
     expect(row.maskedValue).toContain('***');
   });
 

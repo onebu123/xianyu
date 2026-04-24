@@ -46,5 +46,8 @@
     "pglite-server": "^0.1.5",
     "playwright": "^1.59.1",
     "prettier": "^3.6.2"
+  },
+  "overrides": {
+    "path-to-regexp": "8.4.2"
   }
 }

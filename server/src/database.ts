@@ -995,7 +995,7 @@ const DEMO_SECURE_SETTINGS = [
   {
     key: 'openai_api_key',
     description: 'AI 客服与议价模型调用密钥',
-    value: 'sk-demo-openai-private-key',
+    value: 'demo-openai-private-key',
   },
   {
     key: 'xianyu_callback_secret',
